@@ -343,7 +343,7 @@ The seeded data stays in the portal for M5.
 
 ## Milestones 4-8 (planned, not built now)
 
-**M4 HubSpot seed and reset (live).** Detailed in "Milestone 4" above (approved 2026-11-12).
+**M4 HubSpot seed and reset (live).** Detailed in "Milestone 4" above (approved 2026-11-12). Done 2026-11-12: probes P1-P5 as planned on the second run (the first found HubSpot rejects `.example` emails), seeded 1,804 records, a second seed created 0, the reset dry run counted the same 1,804, and the answer key scored 75 of 75 with 0 false positives.
 
 **M5 HubSpot snapshot.** Read companies, contacts and deals with paged list endpoints and the properties the checks need; associations through v4 batch read; owners from `/crm/v3/owners` (archived ones become `active = false`); stage picklist from `/crm/v3/pipelines/deals`. Map to the same `Snapshot` (record ID = `northwind_id` if set, else `HS-<id>`). `monitor run --source hubspot`, `make snapshot-hubspot`. Live scoring against the manifest is meaningful on the seeding day; after that, records age into new findings, which the report shows as findings outside the manifest. Mocked-transport tests only.
 
