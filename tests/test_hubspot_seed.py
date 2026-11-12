@@ -463,6 +463,19 @@ def test_verify_reports_auto_created_companies(plan):
     assert any("without northwind_id" in p for p in problems)
 
 
+@pytest.mark.parametrize("object_type", ["contacts", "deals"])
+def test_verify_reports_untagged_contacts_and_deals(plan, object_type):
+    """HubSpot puts sample contacts in a new portal; untagged records are scored as false
+    positives, so the seed reports them (found by the first live M5 run, 2026-11-12)."""
+    fake = FakeHubSpot()
+    client = client_for(fake)
+    apply_seed(client, plan, PORTAL)
+    fake.add_record(object_type, {"jobtitle": "Salesperson"})
+    fake.add_record(object_type, {"jobtitle": "Executive"})
+    problems = verify_seed(client, plan, sleep=lambda s: None, attempts=1)
+    assert any(p.startswith(f"{object_type}: 2 without northwind_id") for p in problems), problems
+
+
 def test_verify_reports_a_filled_d16_lifecycle_stage(generated, plan):
     fake = FakeHubSpot()
     client = client_for(fake)

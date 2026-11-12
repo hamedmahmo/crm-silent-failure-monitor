@@ -382,6 +382,14 @@ def verify_seed(
                 f"companies: {extra} without {ID_PROPERTY}; is 'Create and associate companies "
                 "with contacts' switched off?"
             )
+        for object_type in ("contacts", "deals"):
+            extra = client.count(object_type, untagged)
+            if extra:
+                problems.append(
+                    f"{object_type}: {extra} without {ID_PROPERTY} (HubSpot's sample records, "
+                    "or records added by hand); the monitor checks them too, so they show up "
+                    "as findings outside the answer key. Archive them in HubSpot."
+                )
         return problems
 
     problems = count_problems()
