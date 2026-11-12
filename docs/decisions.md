@@ -2,6 +2,26 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-11: Map every sample owner to one HubSpot user; keep D10 offline-only
+
+**Decision:** When seeding HubSpot (milestone 4), every Northwind owner `OWN-01` to `OWN-12` maps to the single user in the developer test account. No HubSpot users are created. D10 (deal owned by an inactive or unknown user) keeps `hubspot_plantable = no` and is tested only against the CSV files.
+
+**Context:** HubSpot owners are portal users; they can't be created through the CRM API, and adding users for test data would mean managing seats and invitations. With one user there is no inactive owner to assign a deal to, and assigning an unknown owner ID is expected to be rejected.
+
+**Alternatives:** Invite extra users and deactivate some to plant D10; probe the API to confirm whether unknown or archived owner IDs are rejected.
+
+**Consequences:** In the live portal every record has the same owner, so owner-based report filters show nothing interesting there. D17 (no owner) is still plantable by leaving the owner empty. D10 is not part of the live verification in milestone 4; only D08 and D14 are probed.
+
+## 2026-11-11: Shift dates when seeding HubSpot and keep the original create date
+
+**Decision:** When seeding HubSpot (milestone 4), every business date (close date, stage entered date and similar) is shifted forward by the number of days between 2026-06-30 and the seeding day. The original create time is stored in a custom datetime property, `northwind_created_at`, and the live snapshot (milestone 5) uses it as `created_at` when it is set, instead of HubSpot's own `createdate`.
+
+**Context:** HubSpot sets `createdate` to the moment a record is created through the API and doesn't allow backdating. Without a fix, every seeded record would look created on the seeding day: every clean closed deal would have a close date before its create date (D08), and every contact created before the attribution cutoff with a blank source would look like D22. The date-relative checks (D20, D21) also need dates that are recent relative to the run's as-of date.
+
+**Alternatives:** Seed with the original dates and accept the false positives; drop the date-based checks from the live run; use HubSpot's import tool, which has its own create-date rules.
+
+**Consequences:** The live run's results match the manifest on the seeding day. On later days records age into new findings (for example open deals passing their close date), which is realistic but means live scoring is only exact on the day of seeding. Data migrated into a real portal often has the same problem, so reading an "original created" property is a pattern a real team could reuse.
+
 ## 2026-11-11: One self-contained HTML report rendered with Jinja2
 
 **Decision:** The report is one HTML file with inline CSS and a small inline script (filters, opening sample tables before printing), rendered from `monitor/templates/report.html.j2` with autoescaping on. A markdown version is rendered from the same report model. Colours are CSS custom properties; severity colours reuse a fixed status palette (critical red, serious orange, warning amber, neutral grey), and every text and background pair is tested for 4.5:1 contrast in light and dark mode.

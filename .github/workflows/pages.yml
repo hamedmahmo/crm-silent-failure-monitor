@@ -1,0 +1,57 @@
+name: Publish report
+
+# Runs the offline demo and publishes reports/latest.html (the day-2 report) as the GitHub
+# Pages site. Offline only: no secrets are used. Milestone 7 replaces the demo with the
+# scheduled HubSpot run.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3 # upstream publishes no floating major tag
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12 and dependencies
+        run: uv sync --locked
+
+      - name: Run the offline demo
+        run: make demo # CI=true on GitHub runners, so no browser is opened
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp reports/latest.html site/index.html
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
