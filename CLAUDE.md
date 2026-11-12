@@ -29,6 +29,9 @@ This repository started from `portfolio-template`, a template for small Python d
 | `make format` | apply ruff formatting and safe fixes |
 | `make demo` | offline pipeline: generate day 1, simulate day 2, run the monitor on both, write and open `reports/latest.html` |
 | `make hooks` | run all pre-commit hooks, including gitleaks, on every file |
+| `make hubspot-check` | read-only check that the token in `.env` belongs to the HubSpot developer test account |
+| `make seed-hubspot` | load Northwind day 1 into the test account (writes; guarded) |
+| `make reset-hubspot` | dry run of archiving records tagged `northwind_id`; `uv run python -m monitor hubspot reset --yes` archives |
 
 Run a single test with `uv run pytest tests/test_generate.py -k d05`.
 
@@ -38,7 +41,7 @@ Makefile rule: every recipe is a plain `uv ...` or `uv run ...` command. No `rm 
 
 - Synthetic or public data only. The default source is `data/generate.py` (Northwind Analytics, a fictional B2B SaaS company).
 - No healthcare examples or industries.
-- No real people, email addresses or employer data. Generated emails and domains use the reserved `.example` top-level domain.
+- No real people, email addresses or employer data. Generated emails and domains use the reserved `.example` top-level domain. HubSpot rejects `.example` emails, so the HubSpot seed appends `.com` (`name.example.com`, also reserved); see `docs/decisions.md`.
 - Secrets live only in `.env` (gitignored). Never print, read or commit them. List new variable names, with blank values, in `.env.example`.
 - Generated files go in `data/output/`, which is gitignored. Don't commit generated data.
 - Known data-quality defects are documented in `data/DEFECTS.md`. If you add or change a defect, update the registry in `data/generate.py`, `DEFECTS.md` and the tests together; `test_defects_md_matches_registry` fails if they drift apart.

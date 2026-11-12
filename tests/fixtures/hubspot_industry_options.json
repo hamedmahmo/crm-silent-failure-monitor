@@ -1,0 +1,74 @@
+[
+  {
+    "label": "Computer Software",
+    "value": "COMPUTER_SOFTWARE",
+    "displayOrder": 24,
+    "hidden": false
+  },
+  {
+    "label": "Construction",
+    "value": "CONSTRUCTION",
+    "displayOrder": 26,
+    "hidden": false
+  },
+  {
+    "label": "Education Management",
+    "value": "EDUCATION_MANAGEMENT",
+    "displayOrder": 34,
+    "hidden": false
+  },
+  {
+    "label": "Farming",
+    "value": "FARMING",
+    "displayOrder": 42,
+    "hidden": false
+  },
+  {
+    "label": "Financial Services",
+    "value": "FINANCIAL_SERVICES",
+    "displayOrder": 43,
+    "hidden": false
+  },
+  {
+    "label": "Hospitality",
+    "value": "HOSPITALITY",
+    "displayOrder": 58,
+    "hidden": false
+  },
+  {
+    "label": "Logistics and Supply Chain",
+    "value": "LOGISTICS_AND_SUPPLY_CHAIN",
+    "displayOrder": 77,
+    "hidden": false
+  },
+  {
+    "label": "Machinery",
+    "value": "MACHINERY",
+    "displayOrder": 79,
+    "hidden": false
+  },
+  {
+    "label": "Media Production",
+    "value": "MEDIA_PRODUCTION",
+    "displayOrder": 85,
+    "hidden": false
+  },
+  {
+    "label": "Oil & Energy",
+    "value": "OIL_ENERGY",
+    "displayOrder": 97,
+    "hidden": false
+  },
+  {
+    "label": "Retail",
+    "value": "RETAIL",
+    "displayOrder": 125,
+    "hidden": false
+  },
+  {
+    "label": "Telecommunications",
+    "value": "TELECOMMUNICATIONS",
+    "displayOrder": 133,
+    "hidden": false
+  }
+]

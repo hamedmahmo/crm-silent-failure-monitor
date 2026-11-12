@@ -2,6 +2,56 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Seed HubSpot with `.example.com` emails and domains
+
+**Decision:** When seeding HubSpot, every company domain and contact email that ends in `.example` gets `.com` appended: `quartzstone.example` becomes `quartzstone.example.com`. The rewrite happens in `build_seed` (`hubspot_domain` and `hubspot_email` in `monitor/hubspot/seed.py`), so the seed output folder holds the same values as the portal. The generator, the CSV files and `make demo` keep `.example`. The probe contacts use `probe-lifecycle.example.com` and `probe-autocreate.example.com`.
+
+**Context:** The first probe run (2026-11-12) showed that HubSpot rejects contact emails on the `.example` top-level domain with `400 INVALID_EMAIL`, so P2 and P3 could not run and all 1,031 seeded contacts would have failed. `example.com` is also reserved (RFC 2606, held by IANA), so its subdomains can't reach a real inbox or match a real company. Appending `.com` keeps each company's domain distinct, keeps contact emails on their company's domain, and keeps the 3 D18 pairs sharing a domain.
+
+**Alternatives:** Leave email off HubSpot contacts (less realistic, and says nothing about company domains). Put every contact on `@example.com` with a unique local part (contacts no longer share their company's domain).
+
+**Consequences:** The data rule in CLAUDE.md has one exception: data sent to HubSpot uses `.example.com`. Milestone 5 compares HubSpot records with the answer key by `northwind_id`, not by email or domain, so the rewrite doesn't affect scoring. Whether HubSpot accepts `.example.com` company domains is checked by the seed itself; the probes only create contacts.
+
+## 2026-11-12: Use HubSpot's date-based API version 2026-09
+
+**Decision:** Every HubSpot request uses the `2026-09` paths (`/crm/objects/2026-09/...`, `/crm/properties/2026-09/...`, `/crm/associations/2026-09/...`, `/account-info/2026-09/details`, `/crm/owners/2026-09`). The version is one constant, `API_VERSION` in `monitor/hubspot/client.py`.
+
+**Context:** Since 2026-03-30 HubSpot versions its API by date and calls `v3` and `v4` "legacy", with no deprecation date announced yet. Each dated version is supported for 18 months. From `2026-09`, validation rules an admin sets up in the portal also apply to API writes; the developer test account has none.
+
+**Alternatives:** The `v3`/`v4` paths that most examples still use.
+
+**Consequences:** The code follows the current docs and has a known support window. Moving to a newer version means changing one constant and re-running the probes.
+
+## 2026-11-12: Store the contact source in a custom property and map industries by label
+
+**Decision:** The generator's `source` goes in a custom enumeration property, `northwind_source`, instead of HubSpot's `hs_analytics_source` (Original source). The 12 generator industries map to HubSpot's `industry` options through a table of HubSpot labels (`INDUSTRY_LABELS`); the values sent are looked up from the portal's live option list. All custom properties use a `northwind_` prefix, so the D21 property planned as `stage_entered_at` is `northwind_stage_entered_at`.
+
+**Context:** HubSpot sets Original source from its own analytics, and its docs disagree on whether the API can write it. `industry` is an enumeration of about 150 HubSpot values, and none of them is spelled like the generator's labels (for example "Software" against "Computer Software").
+
+**Alternatives:** Write `hs_analytics_source` and see if it sticks; a custom `northwind_industry` text property; hard-code HubSpot's internal industry values.
+
+**Consequences:** D22 is checked on a property the seed controls, and probe P4 records whether the standard property is read-only. Companies keep HubSpot's standard industry field, which is what a RevOps team would report on. If HubSpot renames an industry option, the seed stops before writing anything and names the label to fix. Milestone 5 needs the reverse map to turn HubSpot values back into generator labels.
+
+## 2026-11-12: Switch off portal automation before seeding, and check after
+
+**Decision:** Before seeding, "Create and associate companies with contacts" and the lifecycle stage automation (default stage, first deal created, deal won, lead associated) are switched off by hand in the test account. Probes P2 and P3 test them, and the seed's post-seed checks fail if any company lacks `northwind_id` or a D16 contact has gained a lifecycle stage.
+
+**Context:** These portal settings change records after they are created: auto-created companies would show up as D04 findings that aren't in the manifest, and automatic lifecycle stages would fill the blanks that D16 plants. HubSpot doesn't expose them through the API, so the code can't switch them off or read them directly.
+
+**Alternatives:** Leave the settings on and filter their effects out when scoring; skip D16.
+
+**Consequences:** Seeding depends on a manual setup step, documented in the runbook. A portal with the settings on is caught twice: once by the probes before seeding and once by the post-seed checks.
+
+## 2026-11-12: When seeding HubSpot, shift only the dates checked against the as-of date
+
+**Decision:** This corrects the 2026-11-11 entry "Shift dates when seeding HubSpot and keep the original create date". Only open deals' `close_date` and `stage_entered_at` move forward by N days (N = seed day − 2026-06-30). Create times, closed deals' `close_date` and `closed_at` keep their generated values. Create times still go in `northwind_created_at`, and the live run's as-of date is the run date.
+
+**Context:** The original rule broke two checks. With a seeding day of 2026-11-13 (N = 136), shifting closed deals' close dates but not create dates makes all 5 D08 deals close after they were created, so they are missed. Shifting create dates as well moves 57 clean contacts with a blank source from late 2025 to after the 2026-01-01 attribution cutoff, so they become D22 false positives. Only D20 (open deal past its close date) and D21 (stale stage) compare a date with the as-of date.
+
+**Alternatives:** Shift everything and move the attribution cutoff by N for live runs, which makes a business rule depend on the seeding day; don't shift at all and run live checks as of 2026-06-30, which means the live data never ages.
+
+**Consequences:** A test runs all 18 checks on the seed tables for several seeding days and expects exactly the plantable records with no false positives. Seeded records keep historical create and close dates, so the portal looks like a CRM migrated from another system.
+
 ## 2026-11-12: Publish the offline demo report on GitHub Pages before milestone 7
 
 **Decision:** A separate workflow, `.github/workflows/pages.yml`, runs `make demo` on every push to `main` and publishes the day-2 report as the Pages site. The README links to it.
@@ -120,7 +170,7 @@ A short log of choices someone might later ask "why?" about. Newest first. Copy 
 
 **Alternatives:** One list for CSV only; a separate HubSpot list.
 
-**Consequences:** Tests check that the doc and the registry agree. The flags for D08, D10 and D14 are a judgement and still need checking in a sandbox portal. D21 needs a custom `stage_entered_at` property in HubSpot.
+**Consequences:** Tests check that the doc and the registry agree. The flags for D08, D10 and D14 are a judgement and still need checking in a sandbox portal. (Update 2026-11-12: probe P1 confirmed D08; D10 and D14 are still unchecked.) D21 needs a custom `stage_entered_at` property in HubSpot.
 
 ## 2026-11-11: Synthetic emails and domains use `.example`
 
