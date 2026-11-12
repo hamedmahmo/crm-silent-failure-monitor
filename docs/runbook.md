@@ -28,8 +28,56 @@ The first commit, or the first `make hooks`, builds the gitleaks hook from sourc
 | `make test` | run pytest |
 | `make lint` | ruff check and format check, no changes |
 | `make format` | apply ruff formatting and safe fixes |
-| `make demo` | generate the dataset with defects into `data/output/` |
+| `make demo` | offline demo: generate day 1, simulate day 2, run the monitor on both, open `reports/latest.html` |
 | `make hooks` | run every pre-commit hook on all files |
+
+## Offline demo
+
+```
+make demo
+```
+
+This runs `uv run python -m monitor demo --out data/output --reports reports`, which:
+
+1. generates Northwind with defects (seed 42) into `data/output/day1/`,
+2. writes a simulated next day into `data/output/day2/` (`data/simulate_day2.py`),
+3. deletes and recreates `data/output/monitor.duckdb`, then runs the monitor on day 1 and day 2,
+4. writes `reports/day1.html`, `reports/day1.md`, `reports/day2.html`, `reports/day2.md`, and `reports/latest.html` and `reports/latest.md` (copies of day 2),
+5. prints one summary and one score line per day, and opens `reports/latest.html` in the default browser. It doesn't open a browser when `--no-open` is passed or the `CI` environment variable is set.
+
+Output of `make demo` (the same on every run, because the data is seeded):
+
+```
+day1 (as of 2026-06-30): 105 open issues in 18 checks: 105 new, 0 persisting, 0 resolved (no previous run)
+  caught 105 of 105 planted records, 0 false positives
+day2 (as of 2026-07-01): 88 open issues in 17 checks: 10 new, 78 persisting, 27 resolved
+  caught 88 of 88 planted records, 0 false positives
+```
+
+Day 2 follows a fixed story: 22 issues fixed in place, 5 duplicate records merged (deleted), 10 new issues from a broken web form, a bad import and new records, and some normal edits (5 new contacts, 3 stage moves, 1 deal closed won) that must not be flagged. `data/output/day2/changes.json` lists every change; the tests compare the monitor's new and resolved findings against it.
+
+## Running the monitor on one snapshot
+
+```
+uv run python -m monitor run --path data/output/day1 --label day1
+uv run python -m monitor run --help
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `--source` | `csv` | only `csv` until the HubSpot source exists (milestone 5) |
+| `--path` | required | folder with `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv`, `metadata.json` |
+| `--db` | `data/output/monitor.duckdb` | runs accumulate here; each run is compared with the one before |
+| `--label` | folder name | used in the report and its file name |
+| `--reports` | `reports` | writes `<label>.html`, `<label>.md`, `latest.html`, `latest.md` |
+| `--checks` | `checks` | folder of check YAML files |
+| `--fresh` | off | delete the database first |
+
+If the folder has a `defects_manifest.json`, the run is scored against it; otherwise the report says "not scored".
+
+Exit codes: 0 when every check ran (findings are not failures), 1 when at least one check errored, 2 when the check YAML or the snapshot can't be read.
+
+The HTML report is a single file with no external requests, so it can be opened from disk, attached to a ticket or published on GitHub Pages. The run timestamp is the only part that changes between two runs on the same data.
 
 ## Generating data
 
@@ -75,7 +123,7 @@ Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests, on Ubuntu: `uv sync --locked`, `make lint`, `make test`, `make demo`, `make hooks`.
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests, on Ubuntu: `uv sync --locked`, `make lint`, `make test`, `make demo`, `make hooks`. `make demo` runs the whole offline pipeline there; GitHub sets `CI=true`, so it doesn't try to open a browser.
 
 `uv sync --locked` fails if `uv.lock` is out of date. Run `uv lock` locally and commit the lock file.
 
@@ -89,4 +137,6 @@ Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid
 | gitleaks blocks a commit | remove the secret from the file, keep it in `.env` instead, and re-stage. If it is a false positive, add the fingerprint to a `.gitleaksignore` file |
 | `end-of-file-fixer` or `trailing-whitespace` changed files and the commit stopped | the hook fixed them; `git add` the files and commit again |
 | `uv sync --locked` fails in CI | run `uv lock` locally and commit `uv.lock` |
+| `monitor run` exits with 1 | a check errored; the report lists it under "Checks that failed to run" with the DuckDB message |
+| Report compares with an unexpected earlier run | runs accumulate in the database; pass `--fresh` or a different `--db` |
 | `--scale must be between 0.5 and 4.0` | smaller runs can't fit every defect's fixed count; larger runs run out of unique company names |

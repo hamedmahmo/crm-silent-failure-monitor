@@ -2,6 +2,36 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-11: One self-contained HTML report rendered with Jinja2
+
+**Decision:** The report is one HTML file with inline CSS and a small inline script (filters, opening sample tables before printing), rendered from `monitor/templates/report.html.j2` with autoescaping on. A markdown version is rendered from the same report model. Colours are CSS custom properties; severity colours reuse a fixed status palette (critical red, serious orange, warning amber, neutral grey), and every text and background pair is tested for 4.5:1 contrast in light and dark mode.
+
+**Context:** The report has to open from disk, as a CI artifact and on GitHub Pages with no network access, and it is meant to be read by RevOps and sales-ops staff, not just engineers. Building the page by string concatenation would make escaping easy to get wrong; record values come from the CRM and can contain anything.
+
+**Alternatives:** A static site generator; a JavaScript framework loaded from a CDN; plain `html.escape` string building (the first plan).
+
+**Consequences:** Jinja2 is a runtime dependency. Filtering works on the check card's status, so "Resolved" shows only checks with no open findings left; partly resolved checks show their resolved count on the card. The run timestamp is the only part of the report that differs between two runs on the same data, which the demo test relies on.
+
+## 2026-11-11: A scripted day 2 instead of random changes
+
+**Decision:** `data/simulate_day2.py` applies a fixed story to day-1 output: specific counts of fixes, merges (deletions), new defects and harmless edits, chosen with a seeded RNG, with `as_of` moved forward one day. It writes the day-2 manifest and a `changes.json` with every change.
+
+**Context:** Change detection needs a second snapshot whose differences are known exactly, so tests can check that "new" and "resolved" match. Random edits would make some changes trip checks by accident, and the expected answer would have to be recomputed by the same kind of logic being tested.
+
+**Alternatives:** Generating day 2 with a different seed (every record would change); hand-editing CSVs (not repeatable).
+
+**Consequences:** New IDs are allocated before deletions so a deleted ID is never reused, which would otherwise turn a "deleted" resolution into "fixed". Moving `as_of` by one day creates no aging findings with this data (clean open deals close on or after 2026-07-01 and entered their stage on or after 2026-05-02); the zero-false-positive day-2 test would catch it if that changed.
+
+## 2026-11-11: Findings of a check that errored are not resolved
+
+**Decision:** When comparing runs, findings of a check that errored in the current run are left out entirely: they are neither persisting nor resolved.
+
+**Context:** If a check breaks, it returns nothing. Comparing that with the previous run would mark every earlier finding as resolved, which is exactly the kind of silent failure the monitor exists to catch.
+
+**Alternatives:** Treat them as persisting (would claim knowledge the run doesn't have).
+
+**Consequences:** The report lists errored checks first, and the resolved count only includes checks that actually ran.
+
 ## 2026-11-11: A failing check is recorded as an error, not skipped
 
 **Decision:** Each check runs on its own. A check whose SQL fails, or that returns anything other than one `record_id` column, is stored in `check_runs` with status `error` and the message; the other checks still run.

@@ -27,7 +27,7 @@ This repository started from `portfolio-template`, a template for small Python d
 | `make test` | `uv run pytest` |
 | `make lint` | `ruff check` and `ruff format --check` |
 | `make format` | apply ruff formatting and safe fixes |
-| `make demo` | generate the Northwind dataset with defects into `data/output/` |
+| `make demo` | offline pipeline: generate day 1, simulate day 2, run the monitor on both, write and open `reports/latest.html` |
 | `make hooks` | run all pre-commit hooks, including gitleaks, on every file |
 
 Run a single test with `uv run pytest tests/test_generate.py -k d05`.

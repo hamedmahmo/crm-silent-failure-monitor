@@ -57,7 +57,7 @@ Requires [uv](https://docs.astral.sh/uv/) and GNU make. uv installs Python 3.12 
 ```
 make setup   # install Python 3.12, dependencies and the git hook
 make test    # run the tests
-make demo    # generate the dataset with defects into data/output/
+make demo    # run the monitor on two simulated days and open reports/latest.html
 ```
 
 Run `make help` for every target. Setup details and troubleshooting are in [docs/runbook.md](docs/runbook.md).

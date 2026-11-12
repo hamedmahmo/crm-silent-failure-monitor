@@ -5,8 +5,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Generated data (rebuild with `make demo`)
+# Generated data and reports (rebuild with `make demo`)
 data/output/
+reports/
 
 # Secrets live only in .env
 .env
