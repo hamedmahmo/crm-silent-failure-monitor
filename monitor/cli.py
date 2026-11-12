@@ -13,7 +13,7 @@ from pathlib import Path
 from types import ModuleType
 
 from monitor import CHECKS_DIR, ROOT
-from monitor.checks import CheckError, load_checks
+from monitor.checks import Check, CheckError, load_checks
 from monitor.datagen import generator, simulator
 from monitor.hubspot.client import (
     API_VERSION,
@@ -38,12 +38,23 @@ from monitor.hubspot.seed import (
     verify_seed,
     write_seed_output,
 )
+from monitor.hubspot.snapshot import read_hubspot_snapshot
 from monitor.params import load_params
-from monitor.pipeline import run_once, summary_lines, write_reports
-from monitor.snapshot import SnapshotError, connect
+from monitor.pipeline import (
+    RunOutcome,
+    read_manifest,
+    run_once,
+    run_snapshot,
+    summary_lines,
+    write_reports,
+)
+from monitor.snapshot import SnapshotError, connect, write_csv_snapshot
 
 DEFAULT_DB = Path("data/output/monitor.duckdb")
 HUBSPOT_OUT = Path("data/output/hubspot")
+HUBSPOT_LIVE_DB = Path("data/output/hubspot-live.duckdb")
+HUBSPOT_REPORTS = Path("reports/hubspot")
+HUBSPOT_ONLY = ("as_of", "manifest", "save_snapshot")
 VERIFICATION_DOC = ROOT / "docs" / "hubspot-verification.md"
 
 
@@ -64,17 +75,34 @@ def cmd_run(args: argparse.Namespace) -> int:
     except CheckError as exc:
         print(f"invalid check definition: {exc}", file=sys.stderr)
         return 2
+    if args.source == "hubspot":
+        return hubspot_command(lambda c, p, a: _run_hubspot(c, p, a, checks))(args)
+    if args.path is None:
+        print("run --source csv needs --path FOLDER", file=sys.stderr)
+        return 2
+    used = [f"--{name.replace('_', '-')}" for name in HUBSPOT_ONLY if getattr(args, name)]
+    if used:
+        print(f"{', '.join(used)} only apply to --source hubspot", file=sys.stderr)
+        return 2
+    db = args.db or DEFAULT_DB
     if args.fresh:
-        remove_database(args.db)
+        remove_database(db)
     label = args.label or args.path.name
     try:
-        with connect(args.db) as con:
+        with connect(db) as con:
             outcome = run_once(con, args.path, label, checks, load_params())
     except SnapshotError as exc:
         print(f"cannot read snapshot: {exc}", file=sys.stderr)
         return 2
-    paths = write_reports(outcome.report, args.reports, label)
-    print("\n".join(summary_lines(outcome)))
+    return _finish_run(outcome, args.reports or Path("reports"), label)
+
+
+def _finish_run(
+    outcome: RunOutcome, reports: Path, label: str, unscored: str | None = None, notes=()
+) -> int:
+    paths = write_reports(outcome.report, reports, label)
+    lines = summary_lines(outcome, unscored) if unscored else summary_lines(outcome)
+    print("\n".join([*lines, *notes]))
     print("Reports: " + ", ".join(str(p) for p in paths if p.suffix == ".html"))
     return 1 if outcome.errors else 0
 
@@ -213,6 +241,39 @@ def _hubspot_reset(client: HubSpotClient, portal_id: str, args: argparse.Namespa
     return 0
 
 
+def _run_hubspot(
+    client: HubSpotClient, portal_id: str, args: argparse.Namespace, checks: list[Check]
+) -> int:
+    """`run --source hubspot`: read the test account (read-only) and run the checks on it."""
+    as_of = args.as_of or today_utc()
+    label = args.label or f"hubspot-{as_of}"
+    manifest, unscored, notes = None, "no --manifest given", []
+    if args.manifest:
+        manifest = read_manifest(args.manifest)
+        if manifest is None:
+            unscored = f"no answer key at {args.manifest}"
+        elif manifest.get("as_of") != as_of.isoformat():
+            notes.append(
+                f"  note: the answer key is for {manifest.get('as_of')}; records that aged "
+                "past their dates since then show up as false positives"
+            )
+    params = load_params()
+    try:
+        snapshot = read_hubspot_snapshot(client, portal_id, as_of, params)
+    except SnapshotError as exc:
+        print(f"cannot read snapshot: {exc}", file=sys.stderr)
+        return 2
+    if args.save_snapshot:
+        write_csv_snapshot(snapshot, args.save_snapshot)
+        notes.append(f"Snapshot saved: {args.save_snapshot}")
+    db = args.db or HUBSPOT_LIVE_DB
+    if args.fresh:
+        remove_database(db)
+    with connect(db) as con:
+        outcome = run_snapshot(con, snapshot, label, checks, params, manifest)
+    return _finish_run(outcome, args.reports or HUBSPOT_REPORTS, label, unscored, notes)
+
+
 cmd_hubspot_check = hubspot_command(_hubspot_check)
 cmd_hubspot_probe = hubspot_command(_hubspot_probe)
 cmd_hubspot_seed = hubspot_command(_hubspot_seed)
@@ -227,11 +288,35 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="load one snapshot as a new run and write its report")
-    run.add_argument("--source", choices=["csv"], default="csv", help="snapshot source")
-    run.add_argument("--path", type=Path, required=True, help="folder with the snapshot CSVs")
-    run.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database (default {DEFAULT_DB})")
-    run.add_argument("--label", help="run label (default: the folder name)")
-    run.add_argument("--reports", type=Path, default=Path("reports"), help="report folder")
+    run.add_argument(
+        "--source",
+        choices=["csv", "hubspot"],
+        default="csv",
+        help="csv: a generator output folder; hubspot: read the test account (read-only)",
+    )
+    run.add_argument("--path", type=Path, help="folder with the snapshot CSVs (csv only)")
+    run.add_argument(
+        "--db",
+        type=Path,
+        help=f"database (default {DEFAULT_DB}; hubspot: {HUBSPOT_LIVE_DB})",
+    )
+    run.add_argument(
+        "--label", help="run label (default: the folder name; hubspot: hubspot-<as-of>)"
+    )
+    run.add_argument(
+        "--reports", type=Path, help=f"report folder (default reports; hubspot: {HUBSPOT_REPORTS})"
+    )
+    run.add_argument(
+        "--as-of",
+        type=date.fromisoformat,
+        help="hubspot: the as-of date for the checks (default: today, UTC)",
+    )
+    run.add_argument(
+        "--manifest", type=Path, help="hubspot: answer key to score against (defects_manifest.json)"
+    )
+    run.add_argument(
+        "--save-snapshot", type=Path, help="hubspot: also save what was read as CSV in this folder"
+    )
     run.add_argument("--checks", type=Path, default=CHECKS_DIR, help="folder with check YAML")
     run.add_argument("--fresh", action="store_true", help="delete the database first")
     run.set_defaults(func=cmd_run)

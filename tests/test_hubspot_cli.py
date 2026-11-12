@@ -123,6 +123,151 @@ def test_probe_exits_1_when_a_probe_contradicts_the_plan(fake, env, tmp_path):
     assert cli.main(["hubspot", "probe", *args]) == 1
 
 
+# ---------------------------------------------------------------- run --source hubspot
+
+
+def seed_key(tmp_path, day: str = "2026-11-13"):
+    """Seed the fake portal and return the answer key folder."""
+    key = tmp_path / "key"
+    assert cli.main(["hubspot", "seed", "--out", str(key), "--day", day]) == 0
+    return key
+
+
+def live_args(tmp_path, *extra: str) -> list[str]:
+    return [
+        "run",
+        "--source",
+        "hubspot",
+        "--db",
+        str(tmp_path / "live.duckdb"),
+        "--reports",
+        str(tmp_path / "reports"),
+        *extra,
+    ]
+
+
+def test_run_hubspot_needs_the_environment_before_any_request(fake, capsys):
+    assert cli.main(["run", "--source", "hubspot"]) == 2
+    assert "HUBSPOT_ACCESS_TOKEN" in capsys.readouterr().err
+    assert fake.requests == []
+
+
+def test_run_csv_still_needs_a_path(capsys):
+    assert cli.main(["run"]) == 2
+    assert "--path" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "extra", [["--as-of", "2026-11-13"], ["--manifest", "x.json"], ["--save-snapshot", "x"]]
+)
+def test_hubspot_only_options_are_refused_for_csv(extra, tmp_path, capsys):
+    assert cli.main(["run", "--path", str(tmp_path), *extra]) == 2
+    assert "--source hubspot" in capsys.readouterr().err
+
+
+def test_run_hubspot_scores_against_the_answer_key(fake, env, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HUBSPOT_PORTAL_ID", "987654321")
+    fake.portal_id = 987654321
+    key = seed_key(tmp_path)
+    capsys.readouterr()
+    args = ["--as-of", "2026-11-13", "--manifest", str(key / "defects_manifest.json")]
+    assert cli.main(live_args(tmp_path, *args)) == 0, capsys.readouterr()
+    out = capsys.readouterr().out
+    assert "hubspot-2026-11-13 (as of 2026-11-13)" in out
+    assert "caught 75 of 75 planted records, 0 false positives" in out
+    for name in ("hubspot-2026-11-13.html", "hubspot-2026-11-13.md", "latest.html"):
+        text = (tmp_path / "reports" / name).read_text(encoding="utf-8")
+        assert "987654321" not in text
+        assert "pat-test" not in text
+
+
+def test_second_live_run_shows_everything_persisting(fake, env, tmp_path, capsys):
+    key = seed_key(tmp_path)
+    args = ["--as-of", "2026-11-13", "--manifest", str(key / "defects_manifest.json")]
+    assert cli.main(live_args(tmp_path, "--label", "first", *args)) == 0
+    capsys.readouterr()
+    assert cli.main(live_args(tmp_path, "--label", "second", *args)) == 0
+    assert (
+        "75 open issues in 13 checks: 0 new, 75 persisting, 0 resolved" in capsys.readouterr().out
+    )
+
+
+def test_as_of_defaults_to_today_and_no_manifest_means_not_scored(
+    fake, env, tmp_path, monkeypatch, capsys
+):
+    seed_key(tmp_path)
+    monkeypatch.setattr(cli, "today_utc", lambda: date(2026, 11, 13))
+    capsys.readouterr()
+    assert cli.main(live_args(tmp_path)) == 0
+    out = capsys.readouterr().out
+    assert "hubspot-2026-11-13 (as of 2026-11-13)" in out
+    assert "not scored" in out
+
+
+def test_missing_manifest_file_is_not_scored(fake, env, tmp_path, capsys):
+    seed_key(tmp_path)
+    capsys.readouterr()
+    missing = tmp_path / "nope" / "defects_manifest.json"
+    args = ["--as-of", "2026-11-13", "--manifest", str(missing)]
+    assert cli.main(live_args(tmp_path, *args)) == 0
+    assert f"not scored (no answer key at {missing})" in capsys.readouterr().out
+
+
+def test_answer_key_for_another_day_is_flagged(fake, env, tmp_path, capsys):
+    key = seed_key(tmp_path)
+    capsys.readouterr()
+    args = ["--as-of", "2026-11-20", "--manifest", str(key / "defects_manifest.json")]
+    cli.main(live_args(tmp_path, *args))
+    assert "answer key is for 2026-11-13" in capsys.readouterr().out
+
+
+def test_save_snapshot_writes_a_csv_snapshot(fake, env, tmp_path):
+    from monitor.snapshot import read_csv_snapshot
+
+    seed_key(tmp_path)
+    live = tmp_path / "live"
+    assert cli.main(live_args(tmp_path, "--as-of", "2026-11-13", "--save-snapshot", str(live))) == 0
+    snap = read_csv_snapshot(live)
+    assert snap.as_of == date(2026, 11, 13)
+    assert {t: len(rows) for t, rows in snap.tables.items()} == {
+        "owners": 1,
+        "companies": 203,
+        "contacts": 1031,
+        "deals": 570,
+    }
+
+
+def test_live_runs_default_to_their_own_database_and_reports(fake, env, tmp_path, monkeypatch):
+    seed_key(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["run", "--source", "hubspot", "--as-of", "2026-11-13"]) == 0
+    assert (tmp_path / "data" / "output" / "hubspot-live.duckdb").is_file()
+    assert (tmp_path / "reports" / "hubspot" / "latest.html").is_file()
+    assert not (tmp_path / "reports" / "latest.html").exists()
+
+
+def test_run_hubspot_refuses_a_standard_account(fake, env, tmp_path, capsys):
+    fake.account_type = "STANDARD"
+    assert cli.main(live_args(tmp_path)) == 1
+    assert "not a developer test account" in capsys.readouterr().err
+
+
+def test_run_hubspot_stage_mismatch_exits_2(fake, env, tmp_path, capsys):
+    fake.pipelines[0]["stages"] = fake.pipelines[0]["stages"][:-1]
+    assert cli.main(live_args(tmp_path)) == 2
+    assert "closedlost" in capsys.readouterr().err
+
+
+def test_makefile_has_the_snapshot_target():
+    from monitor import ROOT
+
+    text = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = text.split("snapshot-hubspot:")[1].split("\n\n")[0]
+    assert "--source hubspot" in recipe
+    for word in ("seed", "reset", "--yes", "probe"):
+        assert word not in recipe.replace("--save-snapshot", "")
+
+
 def test_makefile_has_the_hubspot_targets():
     from monitor import ROOT
 

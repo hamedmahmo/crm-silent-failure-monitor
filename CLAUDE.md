@@ -31,6 +31,7 @@ This repository started from `portfolio-template`, a template for small Python d
 | `make hooks` | run all pre-commit hooks, including gitleaks, on every file |
 | `make hubspot-check` | read-only check that the token in `.env` belongs to the HubSpot developer test account |
 | `make seed-hubspot` | load Northwind day 1 into the test account (writes; guarded) |
+| `make snapshot-hubspot` | read-only: read the test account, run the checks, score against the seed's answer key |
 | `make reset-hubspot` | dry run of archiving records tagged `northwind_id`; `uv run python -m monitor hubspot reset --yes` archives |
 
 Run a single test with `uv run pytest tests/test_generate.py -k d05`.

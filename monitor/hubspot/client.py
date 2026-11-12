@@ -28,7 +28,12 @@ UPSERT_BATCH = 100
 READ_BATCH = 100
 ARCHIVE_BATCH = 100
 ASSOCIATION_BATCH = 2000
+ASSOCIATION_READ_BATCH = 1000
+LIST_PAGE = 100
 SEARCH_PAGE = 200
+# A batch association read reports records with no associations as an error with this
+# subCategory (status 207); they are not failures.
+NO_ASSOCIATIONS = "NO_ASSOCIATIONS_FOUND"
 SEARCH_INTERVAL = 0.2  # HubSpot allows 5 search requests per second per account
 MAX_ATTEMPTS = 5
 BACKOFF_BASE = 1.0
@@ -215,6 +220,53 @@ class HubSpotClient:
             inputs = [{"from": {"id": a}, "to": {"id": b}} for a, b in chunk]
             self._check_batch(path, self.post(path, {"inputs": inputs}))
         return len(pairs)
+
+    # ------------------------------------------------------------ reads
+
+    def list_objects(self, object_type: str, properties: Iterable[str]) -> list[dict]:
+        """Every unarchived record of a type, LIST_PAGE at a time, following paging."""
+        path = f"/crm/objects/{API_VERSION}/{object_type}"
+        params = {"limit": str(LIST_PAGE), "properties": ",".join(properties), "archived": "false"}
+        results: list[dict] = []
+        while True:
+            page = self.get(path, params=params) or {}
+            results += page.get("results") or []
+            after = ((page.get("paging") or {}).get("next") or {}).get("after")
+            if not after:
+                return results
+            params = {**params, "after": str(after)}
+
+    def read_associations(
+        self, from_type: str, to_type: str, ids: Sequence[str]
+    ) -> dict[str, list[dict]]:
+        """Associations of each record, as {from ID: [{toObjectId, associationTypes}, ...]}.
+
+        Records with no associations are left out. A record whose list is paged is asked for
+        again with its `after` cursor until every page is read.
+        """
+        path = f"/crm/associations/{API_VERSION}/{from_type}/{to_type}/batch/read"
+        found: dict[str, list[dict]] = {}
+        pending: list[dict] = [{"id": str(i)} for i in ids]
+        while pending:
+            next_round: list[dict] = []
+            for chunk in chunks(pending, ASSOCIATION_READ_BATCH):
+                body = self.post(path, {"inputs": list(chunk)}) or {}
+                errors = [
+                    e
+                    for e in body.get("errors") or []
+                    if not str(e.get("subCategory", "")).endswith(NO_ASSOCIATIONS)
+                ]
+                if errors:
+                    messages = "; ".join(str(e.get("message", e)) for e in errors[:3])
+                    raise HubSpotError(f"POST {path} reported {len(errors)} errors: {messages}")
+                for result in body.get("results") or []:
+                    from_id = str(result["from"]["id"])
+                    found.setdefault(from_id, []).extend(result.get("to") or [])
+                    after = ((result.get("paging") or {}).get("next") or {}).get("after")
+                    if after:
+                        next_round.append({"id": from_id, "after": str(after)})
+            pending = next_round
+        return found
 
     # ------------------------------------------------------------ search
 

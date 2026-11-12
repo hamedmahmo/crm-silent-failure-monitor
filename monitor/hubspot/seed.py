@@ -178,6 +178,18 @@ def build_seed(
         company["domain"] = hubspot_domain(company["domain"])
     for contact in seeded["contacts"]:
         contact["email"] = hubspot_email(contact["email"])
+    # A reference to a skipped record can't become an association, so the answer key shows it
+    # blank, as HubSpot will (one deal whose primary contact is a skipped D01 duplicate).
+    kept_companies = {c["company_id"] for c in seeded["companies"]}
+    kept_contacts = {c["contact_id"] for c in seeded["contacts"]}
+    for contact in seeded["contacts"]:
+        if contact["company_id"] not in kept_companies:
+            contact["company_id"] = ""
+    for deal in seeded["deals"]:
+        if deal["company_id"] not in kept_companies:
+            deal["company_id"] = ""
+        if deal["primary_contact_id"] not in kept_contacts:
+            deal["primary_contact_id"] = ""
 
     in_scope = set(in_scope_defect_ids(manifest["defects"]))
     live_manifest = {
@@ -370,6 +382,14 @@ def verify_seed(
                 f"companies: {extra} without {ID_PROPERTY}; is 'Create and associate companies "
                 "with contacts' switched off?"
             )
+        for object_type in ("contacts", "deals"):
+            extra = client.count(object_type, untagged)
+            if extra:
+                problems.append(
+                    f"{object_type}: {extra} without {ID_PROPERTY} (HubSpot's sample records, "
+                    "or records added by hand); the monitor checks them too, so they show up "
+                    "as findings outside the answer key. Archive them in HubSpot."
+                )
         return problems
 
     problems = count_problems()

@@ -341,11 +341,159 @@ The seeded data stays in the portal for M5.
 - No HubSpot call in `make test`.
 - On the seeding day, the seed tables score 75 of 75 with 0 false positives offline. The live read-back is scored in M5.
 
+## Milestone 5: HubSpot snapshot
+
+**Status: approved 2026-11-12.** It replaces the M5 sketch below.
+
+M5 reads the seeded developer test account back into the same `Snapshot` the CSV reader builds, so the 18 checks, change detection, scoring and reports run unchanged on live data. It only reads: no request in M5 creates, changes or archives anything.
+
+### What the HubSpot docs check found (2026-11-12)
+
+- **List records.** `GET /crm/objects/2026-09/{type}` with `limit`, `after` (from `paging.next.after`; `paging` is missing on the last page), `properties` and `archived` (default false, so archived records are left out). The 2026-09 page gives no maximum `limit`; the legacy guide says 100, so M5 asks for 100. Values come back as strings, and datetimes as ISO 8601 with milliseconds (`2024-08-15T17:09:13.648Z`). Probe P1 read a close date back without them (`2026-10-13T00:00:00Z`), so the reader accepts both.
+- **Associations.** The list endpoint's `associations` parameter returns per-record lists that can be cut off and paged. The batch read is cleaner: `POST /crm/associations/2026-09/{from}/{to}/batch/read`, up to 1,000 inputs. Each result lists `to[].toObjectId` with `associationTypes` (`category`, `typeId`, `label`). It pages per record (`paging.next.after`, sent back as `{id, after}`).
+  - Primary is `HUBSPOT_DEFINED` with `label: "Primary"`: contact to company is type 1, deal to company is type 5. Deals have no primary contact.
+  - Not documented: what comes back for a record with no associations. It is either left out of `results` or listed in `errors` with status 207. The reader treats both as "none". Any other error fails the run.
+- **Pipelines.** `GET /crm/pipelines/2026-09/deals` returns each pipeline with its `stages[].id`. Its scope list includes `crm.objects.deals.read`, which the key already has.
+- **Owners.** `GET /crm/owners/2026-09` returns `id`, `type`, `archived`, and optionally `email`, `firstName` and `lastName`. `archived=true` returns only deactivated owners.
+- **Limits.** 100 requests per 10 seconds; association requests also allow 100 per 10 seconds. One snapshot is about 30 requests, and the client already retries 429s.
+
+### Mapping HubSpot records to snapshot rows
+
+Every record is read, not just seeded ones, so records someone adds by hand in HubSpot are checked too.
+
+- **Record ID:** `northwind_id` if it is set, otherwise `HS-<HubSpot ID>`. Foreign keys (`company_id`, `primary_contact_id`) use the target record's ID under the same rule.
+- **Which fields are read:**
+  - Seeded records (they have `northwind_id`) take the generator values from the `northwind_*` properties.
+  - Other records take HubSpot's own properties: `createdate` for `created_at`, and `hs_analytics_source` for `source`.
+
+  This split matters for D22. The 10 D22 contacts have a blank `northwind_source`, but HubSpot probably fills their Original source with something like "Offline sources". A fallback from one to the other would hide every D22 record.
+
+| Column | From |
+|---|---|
+| companies: `name`, `domain`, `country` | `name`, `domain`, `country` |
+| companies: `industry` | `industry` value mapped back to the generator label: HubSpot value to option label (live option list) to generator name (`INDUSTRY_LABELS` reversed). A value outside the map keeps its HubSpot label; D04 only tests for blank. |
+| companies: `employee_band`, `plan_tier`, `churned_at` | `northwind_employee_band`, `northwind_plan_tier`, `northwind_churned_at` |
+| contacts: `first_name`, `last_name`, `email`, `job_title`, `lifecycle_stage` | `firstname`, `lastname`, `email`, `jobtitle`, `lifecyclestage` |
+| contacts: `source` | `northwind_source` (seeded) or `hs_analytics_source` (other) |
+| contacts: `company_id` | contact-to-company association: the primary one (type 1); if none is labelled primary, the lowest record ID |
+| deals: `stage`, `amount`, `currency` | `dealstage`, `amount`, `deal_currency_code` |
+| deals: `close_date` | date part of `closedate` |
+| deals: `stage_entered_at`, `closed_at` | `northwind_stage_entered_at`, `northwind_closed_at`; blank for other deals |
+| deals: `company_id` | deal-to-company association: primary (type 5), otherwise the lowest record ID |
+| deals: `primary_contact_id` | deal-to-contact association: the lowest record ID (HubSpot has no primary contact) |
+| all: `owner_id` | `hubspot_owner_id` |
+| all: `created_at` | `northwind_created_at` (seeded) or `createdate` (other), as `YYYY-MM-DDTHH:MM:SSZ` |
+| owners: `owner_id`, `active` | owner `id`; `true` for the active list, `false` for `archived=true` |
+| owners: `name` | left blank. The test account's owner is a real person (the account holder), and no check uses owner names. Names and emails are never read into the snapshot. |
+
+- **Datetimes** are cut to whole seconds in UTC, which is the generator's format, so the checks and the comparison with the answer key see the same strings.
+- **`stage_entered_at` for deals added by hand** stays blank, so D21 can't flag them. HubSpot's own stage-entry properties exist, but checking which one to use is outside M5's scope. It goes in the README limitations.
+
+### Run settings
+
+- **Guard first.** `check_portal` runs before any other read. It refuses anything but the developer test account, because M7 publishes the report on public GitHub Pages.
+- **Stage check.** The deal pipeline `default` must contain every stage in `checks/params.yaml`. If it doesn't, the run stops with exit 2 before any check runs, because the checks would mislabel open and closed deals.
+- **As-of date.** Today in UTC by default. `--as-of YYYY-MM-DD` overrides it, so the answer key can be scored on a day after the seed day.
+- **Source label.** `source = "hubspot"`, and `source_ref` is "HubSpot developer test account". The portal ID never goes in the database or the reports.
+- **Default database and reports.** `data/output/hubspot-live.duckdb` and `reports/hubspot/`, so live runs don't mix with the demo's change detection or overwrite `reports/latest.html`.
+
+### Layout and commands
+
+```
+monitor/hubspot/snapshot.py   read_hubspot_snapshot(client, portal_id, as_of, params) -> Snapshot
+                              (HTTP: guard, owners, pipelines, industry options, objects, associations)
+                              rows_from_hubspot(...)  the pure mapping above, tested on its own
+monitor/snapshot.py           write_csv_snapshot(snapshot, folder): the generator's CSV + metadata.json format
+monitor/pipeline.py           run_once takes a Snapshot and an optional manifest; a small wrapper keeps the CSV path
+scripts/compare_snapshots.py  compare two snapshot folders record by record
+```
+
+- `python -m monitor run --source hubspot [--as-of DATE] [--manifest PATH] [--save-snapshot DIR] [--label] [--db] [--reports] [--fresh]`.
+  - `--path` is required only for `--source csv`.
+  - The default label is `hubspot-<as-of>`.
+  - `--manifest` scores the run against an answer key. A missing file prints "not scored (no answer key at ...)" and isn't an error.
+  - If the key's as-of date differs from the run's, the score line says so, because records that aged since the seed show up as false positives.
+  - `--save-snapshot` writes what was read in the CSV format, so a live snapshot can be re-run offline and compared.
+- The environment variables are handled as in M4: a missing token or portal ID exits 2 before any request.
+- Make target `snapshot-hubspot`: `uv run python -m monitor run --source hubspot --manifest data/output/hubspot/defects_manifest.json --save-snapshot data/output/hubspot-live`.
+- `scripts/compare_snapshots.py EXPECTED ACTUAL` prints, per table:
+  - records missing or extra;
+  - per column, how many records differ, with up to 5 examples.
+
+  `owner_id` is compared only as blank or set, because the answer key keeps `OWN-xx` and the portal has one HubSpot owner ID. The owners table is compared by count of active owners only. Exit 1 if anything else differs.
+
+### Tests first (mocked transports only)
+
+- Extend `tests/hubspot_fake.py`:
+  - GET list endpoints, with `limit`, `after` and `properties`, returning datetimes with milliseconds;
+  - association batch read, with association types and per-record paging; records with no associations are left out, and a flag lists them in `errors` instead;
+  - deal pipelines;
+  - owners with names and emails, so the tests can check that those are dropped.
+- `tests/test_hubspot_snapshot.py`:
+  - **Round trip:** `apply_seed` into the fake, then `read_hubspot_snapshot`. The tables equal the seed plan's tables, with owner IDs compared as blank or set. The 18 checks then return exactly the 75-record live manifest with 0 false positives.
+  - A record without `northwind_id` gets `HS-<id>`, `createdate` and `hs_analytics_source`. A seeded contact with a blank `northwind_source` stays blank even when `hs_analytics_source` is set.
+  - Associations:
+    - primary is chosen over an unlabelled association;
+    - without a primary, the lowest record ID wins;
+    - a record left out of the results, or listed in `errors` as having none, gives a blank;
+    - any other error fails the run;
+    - per-record paging is followed;
+    - 1,031 inputs go out as 1,000 + 31.
+  - List paging goes through every page, and archived records aren't requested.
+  - Datetimes with and without milliseconds come out as `YYYY-MM-DDTHH:MM:SSZ`. `closedate` becomes a date.
+  - Industry values map back to generator labels; an unknown value keeps its HubSpot label; a blank stays blank.
+  - Owners: archived owners are `active = false`, and no owner name or email appears anywhere in the snapshot.
+  - The guard runs first, and a refused portal gets no other request. A pipeline missing a `params.yaml` stage stops the run.
+  - Read only: `fake.writes()` is empty after a snapshot.
+- `tests/test_hubspot_cli.py`:
+  - `run --source hubspot` exits 2 without the environment variables, before any request;
+  - `--path` is not needed for hubspot;
+  - with `--manifest` it scores; a missing manifest is "not scored";
+  - `--as-of` sets the run date;
+  - `--save-snapshot` writes a folder that `read_csv_snapshot` reads back unchanged;
+  - the HTML and markdown reports contain neither the portal ID nor the token.
+- `tests/test_compare_snapshots.py`: identical folders exit 0; a changed value, a missing record and an extra record are each reported and exit 1; an `OWN-xx` against a HubSpot owner ID is not a difference.
+- The existing pipeline and demo tests keep passing after the `run_once` change, and `make demo` output is unchanged.
+- `Makefile` has `snapshot-hubspot`, and its recipe has no write command.
+
+### Order of live work (all read-only)
+
+1. `uv run python -m monitor run --source hubspot --as-of 2026-11-12 --manifest data/output/hubspot/defects_manifest.json --save-snapshot data/output/hubspot-live --fresh`. Expected: 75 of 75, 0 false positives, no check errors.
+2. `uv run python scripts/compare_snapshots.py data/output/hubspot data/output/hubspot-live`. Expected: no differences. If there are any, I stop and bring them back before changing the mapping.
+3. The same run again without `--fresh`. Expected: 0 new, 75 persisting, 0 resolved.
+4. `make snapshot-hubspot` with today's date. If today is later than 2026-11-12, findings from records aging past the as-of date are expected, and I report them as they are.
+
+The first live read is also where the undocumented "no associations" response shows up for real: the 5 D19 deals have no company, and one deal has no contact. If HubSpot does something other than the two handled cases, the run fails, and I bring it back.
+
+### Docs in M5
+
+- Runbook: the `run --source hubspot` options, `make snapshot-hubspot`, the outputs, the compare script, and troubleshooting (a stage mismatch, the guard, a missing answer key).
+- Decision entries:
+  - record IDs from `northwind_id`, with `HS-<id>` otherwise;
+  - seeded records read `northwind_*` fields and others read HubSpot's own;
+  - owner names are not read;
+  - associations are read with batch read and the primary-or-lowest rule;
+  - the separate database and reports folder for live runs.
+- README: status line, the live result from step 1, and the limitation on `stage_entered_at` for deals added by hand.
+
+### Changes made while building M5
+
+- The comparison logic is in `monitor/compare.py`, so it can be tested; `scripts/compare_snapshots.py` only calls it.
+- The owners table is not compared at all, rather than compared by count of active owners. The answer key has the generator's 12 owners, while the portal has one, so no count would match.
+- The round-trip test found that the seed's answer key still pointed one deal at a skipped D01 contact. `build_seed` now blanks references to skipped records (decision entry 2026-11-12). The answer key on disk predates the fix, so before live step 2, running the seed again with `--day 2026-11-12` rewrites it. That sends identical payloads, so HubSpot data doesn't change. Otherwise step 2 shows exactly that one known difference.
+- `churned_at` is a date in the generator, so it is read back as a date, like `closedate`.
+
+### Done for M5
+
+- Everything in the CLAUDE.md definition of done holds, and `make demo` results are unchanged.
+- No HubSpot call in `make test`; the round-trip test passes on the fake.
+- Live, as of the seed day: 75 of 75 with 0 false positives, no differences from the answer key, and a second run shows everything persisting.
+
 ## Milestones 4-8 (planned, not built now)
 
 **M4 HubSpot seed and reset (live).** Detailed in "Milestone 4" above (approved 2026-11-12). Done 2026-11-12: probes P1-P5 as planned on the second run (the first found HubSpot rejects `.example` emails), seeded 1,804 records, a second seed created 0, the reset dry run counted the same 1,804, and the answer key scored 75 of 75 with 0 false positives.
 
-**M5 HubSpot snapshot.** Read companies, contacts and deals with paged list endpoints and the properties the checks need; associations through v4 batch read; owners from `/crm/v3/owners` (archived ones become `active = false`); stage picklist from `/crm/v3/pipelines/deals`. Map to the same `Snapshot` (record ID = `northwind_id` if set, else `HS-<id>`). `monitor run --source hubspot`, `make snapshot-hubspot`. Live scoring against the manifest is meaningful on the seeding day; after that, records age into new findings, which the report shows as findings outside the manifest. Mocked-transport tests only.
+**M5 HubSpot snapshot.** Detailed in "Milestone 5" above (approved 2026-11-12). Done 2026-11-12: the seed was run again for 2026-11-12 to rewrite the answer key (0 created). The first live read scored 75 of 75 with 2 false positives, HubSpot's two sample contacts. After they were archived: 75 of 75, 0 false positives, no differences from the answer key. A second run showed 0 new and 75 persisting, and `make snapshot-hubspot` gave the same. The original sketch: read companies, contacts and deals with paged list endpoints and the properties the checks need; associations through v4 batch read; owners from `/crm/v3/owners` (archived ones become `active = false`); stage picklist from `/crm/v3/pipelines/deals`. Map to the same `Snapshot` (record ID = `northwind_id` if set, else `HS-<id>`). `monitor run --source hubspot`, `make snapshot-hubspot`. Live scoring against the manifest is meaningful on the seeding day; after that, records age into new findings, which the report shows as findings outside the manifest. Mocked-transport tests only.
 
 **M6 Digest.** `digest.py` builds a short summary from the report model (counts, new issues by severity and owner, check titles; no record contents). If `ANTHROPIC_API_KEY` is set, ask the Claude API for the summary (model and SDK chosen from the claude-api reference at build time); on error or no key, use the plain template summary. If `SLACK_WEBHOOK_URL` is set, post the digest; otherwise skip it. The webhook URL is never logged. Tests cover both fallbacks and mocked calls.
 
