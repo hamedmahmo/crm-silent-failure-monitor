@@ -8,9 +8,9 @@ Status: milestones 1-3 are built and run offline on synthetic data. The HubSpot 
 
 ## Demo
 
-![Demo](docs/demo.gif)
+![make demo prints the day-1 and day-2 scores, then the day-2 report is filtered to checks with new issues](docs/demo.gif)
 
-*To record: `make demo` in a terminal, the two score lines, then the report opening in the browser and the Status filter set to "New".*
+`make demo` prints one summary and one score line per day. The day-2 report then opens; with the Status filter set to "New", it shows the 5 checks that have issues not present on day 1, and each card's sample table lists the new records first.
 
 ## Problem
 
@@ -102,8 +102,6 @@ To run the monitor on one snapshot folder: `uv run python -m monitor run --path 
 
 ## How I built this
 
-> **Draft for review.** Compiled from `docs/plan.md`, `docs/decisions.md` and the git history. Check both lists before publishing.
-
 **What I decided**
 
 - The goal and scope: a monitor for silent CRM failures, limited to owners, companies, contacts and deals, with usage events and support tickets left for a later project.
@@ -121,9 +119,10 @@ To run the monitor on one snapshot folder: `uv run python -m monitor run --path 
 - Wrote the tests before the code in each milestone, then the code: snapshot loader, check engine, the 18 checks, scoring, change detection, day-2 simulator, report templates and CLI.
 - Proposed the severities and owner teams in the check YAML.
 - Picked the report colours from a fixed status palette, computed their contrast, and checked the page with headless Chrome in light and dark mode, at 375 px wide and as a print PDF.
-- Wrote the decision entries, runbook and this draft.
+- Wrote the GitHub Pages workflow and made the report screenshot and the demo GIF from a real `make demo` run.
+- Wrote the decision entries, the runbook and the first draft of this README.
 
-**How I checked its work:** *TODO: describe your review, for example reading each milestone's diff before the commit and checking the report screenshots.*
+**How I checked its work:** I reviewed and approved the plan in `docs/plan.md` before any monitor code was written, and Claude Code brought open design questions back to me instead of settling them itself; the HubSpot date shift and owner mapping were decided that way on 2026-11-11. The definition of done in `CLAUDE.md` sets the bar for each change: tests written first, `make test`, `make lint` and `make hooks` passing, and `make demo` catching every planted record with 0 false positives on both days while clean data gives none. CI runs the same targets on Linux, and I merged the milestone 1-3 pull request after it passed there.
 
 ## Decisions
 

@@ -2,6 +2,16 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Publish the offline demo report on GitHub Pages before milestone 7
+
+**Decision:** A separate workflow, `.github/workflows/pages.yml`, runs `make demo` on every push to `main` and publishes the day-2 report as the Pages site. The README links to it.
+
+**Context:** The plan puts Pages publishing in milestone 7, with the scheduled HubSpot run. Until then the README would have no working link to a report, and a screenshot doesn't show the filters or the sample tables.
+
+**Alternatives:** Wait for milestone 7; commit a copy of the report to the repository (generated files stay out of git); attach the report to a release by hand.
+
+**Consequences:** The published report is synthetic Northwind data from the offline demo, so it can be public. Its run timestamp changes on every push. Milestone 7 changes what the workflow publishes, not where.
+
 ## 2026-11-11: Map every sample owner to one HubSpot user; keep D10 offline-only
 
 **Decision:** When seeding HubSpot (milestone 4), every Northwind owner `OWN-01` to `OWN-12` maps to the single user in the developer test account. No HubSpot users are created. D10 (deal owned by an inactive or unknown user) keeps `hubspot_plantable = no` and is tested only against the CSV files.

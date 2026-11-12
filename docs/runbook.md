@@ -127,6 +127,14 @@ Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid
 
 `uv sync --locked` fails if `uv.lock` is out of date. Run `uv lock` locally and commit the lock file.
 
+## Published report (GitHub Pages)
+
+`.github/workflows/pages.yml` runs on pushes to `main` and from the Actions tab (`workflow_dispatch`). It runs `make demo`, copies `reports/latest.html` (the day-2 report) to `site/index.html`, and deploys it to https://hamedmahmo.github.io/crm-silent-failure-monitor/. It uses no secrets.
+
+One-time setup: in the repository settings, under Pages, set Source to "GitHub Actions". With "Deploy from a branch", GitHub publishes the README instead. The `github-pages` environment only accepts deployments from `main`, so runs on other branches fail at the deploy step.
+
+Milestone 7 replaces the offline demo with the scheduled HubSpot run.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -137,6 +145,7 @@ Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid
 | gitleaks blocks a commit | remove the secret from the file, keep it in `.env` instead, and re-stage. If it is a false positive, add the fingerprint to a `.gitleaksignore` file |
 | `end-of-file-fixer` or `trailing-whitespace` changed files and the commit stopped | the hook fixed them; `git add` the files and commit again |
 | `uv sync --locked` fails in CI | run `uv lock` locally and commit `uv.lock` |
+| The Pages URL shows the README instead of the report | set Pages Source to "GitHub Actions" in the repository settings, then re-run "Publish report" |
 | `monitor run` exits with 1 | a check errored; the report lists it under "Checks that failed to run" with the DuckDB message |
 | Report compares with an unexpected earlier run | runs accumulate in the database; pass `--fresh` or a different `--db` |
 | `--scale must be between 0.5 and 4.0` | smaller runs can't fit every defect's fixed count; larger runs run out of unique company names |
