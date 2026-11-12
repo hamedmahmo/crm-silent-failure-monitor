@@ -1,0 +1,142 @@
+# Checks on deals. Each SQL query runs against the current run's views and returns the IDs of
+# offending records in one column, record_id. Open and closed stages come from deal_stages
+# (checks/params.yaml); thresholds and as_of come from run_context.
+
+- id: deal_closedwon_no_amount
+  title: Closed-won deal with blank or zero amount
+  severity: critical
+  owner: finance
+  record_type: deals
+  defects: [D06]
+  why_it_matters: Closed-won deals with no amount are missing from bookings and revenue reports.
+  sample_columns: [deal_id, stage, amount, owner_id, close_date]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE stage = 'closedwon'
+      AND (amount IS NULL OR TRY_CAST(amount AS DOUBLE) = 0)
+
+- id: deal_amount_too_large
+  title: Deal amount above the top list price
+  severity: critical
+  owner: finance
+  record_type: deals
+  defects: [D07]
+  why_it_matters: Amounts entered in cents inflate pipeline and bookings by 100 times for each affected deal.
+  sample_columns: [deal_id, amount, currency, stage, owner_id]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE TRY_CAST(amount AS DOUBLE) > (SELECT max_deal_amount FROM run_context)
+
+- id: deal_close_before_create
+  title: Closed deal with a close date before its create date
+  severity: high
+  owner: revops
+  record_type: deals
+  defects: [D08]
+  why_it_matters: Deals that close before they were created distort sales-cycle length and bookings by period.
+  sample_columns: [deal_id, stage, created_at, close_date, owner_id]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE stage IN (SELECT stage FROM deal_stages WHERE is_closed)
+      AND TRY_CAST(left(close_date, 10) AS DATE) < TRY_CAST(left(created_at, 10) AS DATE)
+
+- id: deal_stage_not_in_picklist
+  title: Deal stage outside the pipeline picklist
+  severity: critical
+  owner: revops
+  record_type: deals
+  defects: [D09]
+  why_it_matters: Deals with an unknown stage are neither open nor closed, so they vanish from pipeline and bookings.
+  sample_columns: [deal_id, stage, amount, owner_id]
+  # Exact match: "Closed Won" and "closedwon " with a trailing space are both flagged.
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE stage IS NULL
+       OR stage NOT IN (SELECT stage FROM deal_stages)
+
+- id: deal_owner_inactive
+  title: Deal owned by an inactive or unknown user
+  severity: high
+  owner: sales-ops
+  record_type: deals
+  defects: [D10]
+  why_it_matters: Deals owned by inactive or unknown users have nobody working them and are missing from quota reports.
+  sample_columns: [deal_id, owner_id, stage, amount]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE owner_id IS NOT NULL
+      AND owner_id NOT IN (SELECT owner_id FROM owners WHERE active = 'true')
+
+- id: deal_no_owner
+  title: Deal with no owner
+  severity: high
+  owner: sales-ops
+  record_type: deals
+  defects: [D17]
+  why_it_matters: Unowned deals are in no rep's pipeline, so they are not forecast or followed up.
+  sample_columns: [deal_id, owner_id, stage, amount, company_id]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE owner_id IS NULL
+
+- id: deal_no_company
+  title: Deal with no associated company
+  severity: high
+  owner: revops
+  record_type: deals
+  defects: [D19]
+  why_it_matters: Deals without a company drop out of account-level revenue reports.
+  sample_columns: [deal_id, company_id, primary_contact_id, stage, amount]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE company_id IS NULL
+
+- id: deal_open_past_close_date
+  title: Open deal with a close date in the past
+  severity: medium
+  owner: sales-ops
+  record_type: deals
+  defects: [D20]
+  why_it_matters: Open deals with a past close date are forecast into periods that have already ended.
+  sample_columns: [deal_id, stage, close_date, amount, owner_id]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE stage IN (SELECT stage FROM deal_stages WHERE is_open)
+      AND TRY_CAST(left(close_date, 10) AS DATE) < (SELECT as_of FROM run_context)
+
+- id: deal_stale_stage
+  title: Open deal stuck in one stage for more than 60 days
+  severity: medium
+  owner: sales-ops
+  record_type: deals
+  defects: [D21]
+  why_it_matters: Deals stuck in one stage for months still count as live pipeline though they are unlikely to close.
+  sample_columns: [deal_id, stage, stage_entered_at, amount, owner_id]
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals, run_context
+    WHERE stage IN (SELECT stage FROM deal_stages WHERE is_open)
+      AND date_diff('day', TRY_CAST(left(stage_entered_at, 10) AS DATE), run_context.as_of)
+          > run_context.stale_stage_days
+
+- id: deal_contractsent_no_amount
+  title: Deal at contract sent with no amount
+  severity: high
+  owner: sales-ops
+  record_type: deals
+  defects: [D23]
+  why_it_matters: Deals at contract sent with no amount are missing from the late-stage pipeline value in the forecast.
+  sample_columns: [deal_id, stage, amount, close_date, owner_id]
+  # Earlier open stages may have no amount yet; that is allowed.
+  sql: |
+    SELECT deal_id AS record_id
+    FROM deals
+    WHERE stage = 'contractsent' AND amount IS NULL

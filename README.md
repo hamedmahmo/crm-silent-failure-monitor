@@ -1,6 +1,6 @@
-# Project title
+# CRM Silent-Failure Monitor
 
-One sentence: what this project does, for whom, and the result. Example: "A nightly check that finds CRM records which break revenue reports without raising an error."
+A scheduled job that finds CRM records which break pipeline and revenue reports without raising an error, and reports what is new, resolved or unchanged since the last run.
 
 > **Using this template.** Click "Use this template" on GitHub, then run `make setup` and `make test`. Replace every section below with your project's content and delete the italic guidance. The `/case-study` command in Claude Code can draft these sections from the code and decision log.
 
@@ -57,7 +57,7 @@ Requires [uv](https://docs.astral.sh/uv/) and GNU make. uv installs Python 3.12 
 ```
 make setup   # install Python 3.12, dependencies and the git hook
 make test    # run the tests
-make demo    # generate the dataset with defects into data/output/
+make demo    # run the monitor on two simulated days and open reports/latest.html
 ```
 
 Run `make help` for every target. Setup details and troubleshooting are in [docs/runbook.md](docs/runbook.md).

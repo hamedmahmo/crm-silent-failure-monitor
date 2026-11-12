@@ -1,0 +1,93 @@
+# Checks on contacts. Each SQL query runs against the current run's views and returns the IDs
+# of offending records in one column, record_id.
+
+- id: contact_duplicate_email
+  title: Duplicate contact with the same email in different letter case
+  severity: high
+  owner: marketing-ops
+  record_type: contacts
+  defects: [D01]
+  why_it_matters: Duplicate contacts double-count leads and split activity history across two records.
+  sample_columns: [contact_id, email, company_id, created_at]
+  # The lowest contact_id per normalized email is treated as the original; the rest are flagged.
+  sql: |
+    SELECT contact_id AS record_id
+    FROM (
+      SELECT
+        contact_id,
+        row_number() OVER (PARTITION BY lower(trim(email)) ORDER BY contact_id) AS position
+      FROM contacts
+      WHERE email IS NOT NULL
+    )
+    WHERE position > 1
+
+- id: contact_orphan_company
+  title: Contact linked to a company that doesn't exist
+  severity: high
+  owner: revops
+  record_type: contacts
+  defects: [D02]
+  why_it_matters: Contacts pointing at a missing company drop out of every account-level report.
+  sample_columns: [contact_id, company_id, email, owner_id]
+  sql: |
+    SELECT c.contact_id AS record_id
+    FROM contacts AS c
+    LEFT JOIN companies AS co ON co.company_id = c.company_id
+    WHERE c.company_id IS NOT NULL AND co.company_id IS NULL
+
+- id: contact_malformed_email
+  title: Malformed email address
+  severity: medium
+  owner: marketing-ops
+  record_type: contacts
+  defects: [D03]
+  why_it_matters: Malformed emails bounce, so these contacts silently drop out of campaigns and email metrics.
+  sample_columns: [contact_id, email, company_id]
+  # Checked without trimming: a trailing space is a defect.
+  sql: |
+    SELECT contact_id AS record_id
+    FROM contacts
+    WHERE email IS NULL
+       OR NOT regexp_matches(email, '^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+- id: contact_missing_lifecycle_stage
+  title: Contact missing lifecycle stage
+  severity: medium
+  owner: marketing-ops
+  record_type: contacts
+  defects: [D16]
+  why_it_matters: Contacts without a lifecycle stage are missing from funnel conversion reports.
+  sample_columns: [contact_id, lifecycle_stage, source, created_at]
+  sql: |
+    SELECT contact_id AS record_id
+    FROM contacts
+    WHERE lifecycle_stage IS NULL
+
+- id: contact_no_owner
+  title: Contact with no owner
+  severity: medium
+  owner: sales-ops
+  record_type: contacts
+  defects: [D17]
+  why_it_matters: Unowned contacts appear in no rep's views, so nobody follows up and rep-level reports undercount.
+  sample_columns: [contact_id, owner_id, company_id, lifecycle_stage]
+  sql: |
+    SELECT contact_id AS record_id
+    FROM contacts
+    WHERE owner_id IS NULL
+
+- id: contact_missing_source
+  title: Contact created after the attribution cutoff with no source
+  severity: medium
+  owner: marketing-ops
+  record_type: contacts
+  defects: [D22]
+  why_it_matters: Contacts with no original source count as unattributed, which understates channel ROI.
+  sample_columns: [contact_id, source, created_at, lifecycle_stage]
+  # Blank sources before the cutoff are allowed: attribution wasn't tracked then.
+  sql: |
+    SELECT contact_id AS record_id
+    FROM contacts
+    WHERE source IS NULL
+      AND TRY_CAST(left(created_at, 10) AS DATE)
+          >= (SELECT source_required_from FROM run_context)

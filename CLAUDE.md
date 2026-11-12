@@ -1,10 +1,12 @@
 # CLAUDE.md
 
-Instructions for Claude Code in this repository. Replace the `TODO:` lines when you start a new project from the template.
+Instructions for Claude Code in this repository.
 
 ## Purpose
 
-TODO: one or two sentences on what this project does and who would use it.
+CRM Silent-Failure Monitor: a scheduled job that snapshots CRM data (owners, companies, contacts, deals) into DuckDB, runs SQL checks defined in `checks/*.yaml` for data problems that break reporting without raising errors, and reports what is new, resolved or unchanged since the last run. RevOps and sales-ops teams would use the report to fix records before they distort pipeline and revenue numbers. It runs offline on the Northwind generator output (`make demo`) and, in later milestones, against a HubSpot developer test account.
+
+Scope: the defects in `data/DEFECTS.md` on owners, companies, contacts and deals. Usage events and support tickets (D05, D11-D15) are out of scope. The plan is in `docs/plan.md`.
 
 This repository started from `portfolio-template`, a template for small Python data and automation projects. Each project is a short case study: a realistic problem, synthetic data, working code, tests, and a README that explains the result.
 
@@ -25,7 +27,7 @@ This repository started from `portfolio-template`, a template for small Python d
 | `make test` | `uv run pytest` |
 | `make lint` | `ruff check` and `ruff format --check` |
 | `make format` | apply ruff formatting and safe fixes |
-| `make demo` | generate the Northwind dataset with defects into `data/output/` |
+| `make demo` | offline pipeline: generate day 1, simulate day 2, run the monitor on both, write and open `reports/latest.html` |
 | `make hooks` | run all pre-commit hooks, including gitleaks, on every file |
 
 Run a single test with `uv run pytest tests/test_generate.py -k d05`.
@@ -61,4 +63,5 @@ A task is done when all of these hold:
 - [ ] `docs/runbook.md` is updated if commands, setup or outputs changed.
 - [ ] `docs/decisions.md` has an entry for any non-obvious choice.
 - [ ] README results come from a real run, not estimates.
-- [ ] TODO: project-specific checks (for example, "monitor flags all 23 planted defects and nothing in clean data").
+- [ ] `make demo` catches every in-scope planted record with 0 false positives on day 1 and day 2, and clean data gives zero findings.
+- [ ] No HubSpot, Claude or Slack call runs in `make test`; network clients are tested with mocked transports.

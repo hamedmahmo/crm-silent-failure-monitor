@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ r.project }} · {{ r.run_label }}</title>
+<style>
+:root {
+  color-scheme: light dark;
+{% for name, value in palette.light.items() %}
+  --{{ name }}: {{ value }};
+{% endfor %}
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+{% for name, value in palette.dark.items() %}
+    --{{ name }}: {{ value }};
+{% endfor %}
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+.wrap { max-width: 1040px; margin: 0 auto; padding: 40px 16px 72px; }
+.eyebrow { margin: 0; color: var(--text-secondary); font-size: 13px; letter-spacing: 0.02em; }
+h1 { margin: 4px 0 10px; font-size: 28px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; }
+h2 { margin: 48px 0 6px; font-size: 19px; font-weight: 600; }
+.section-note { margin: 0 0 16px; color: var(--text-secondary); font-size: 14px; }
+.meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 20px; color: var(--text-secondary); font-size: 14px; }
+.meta strong { color: var(--text); font-weight: 600; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 28px 0 8px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.tile .label { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.tile .value { margin: 6px 0 0; font-size: 30px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .sub { margin: 6px 0 0; color: var(--text-secondary); font-size: 13px; }
+
+.filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 0 0 16px; }
+.filters[hidden] { display: none; }
+.filters label { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); font-size: 13px; }
+select {
+  min-width: 170px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit;
+}
+select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.visible-count { margin: 0 0 0 auto; color: var(--text-secondary); font-size: 13px; }
+
+.cards { display: grid; gap: 14px; }
+.card {
+  --sev: var(--border);
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--sev);
+  border-radius: 14px; padding: 18px 20px;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.card[hidden] { display: none; }
+{% for s in severities %}
+.card[data-severity="{{ s }}"] { --sev: var(--sev-{{ s }}-bg); }
+{% endfor %}
+.card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.card h3 { flex: 1 1 260px; margin: 0; font-size: 17px; font-weight: 600; line-height: 1.35; }
+.badge, .pill {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
+{% for s in severities %}
+.badge-{{ s }} { background: var(--sev-{{ s }}-bg); color: var(--sev-{{ s }}-fg); }
+{% endfor %}
+.pill { letter-spacing: 0.05em; }
+.pill-new { background: var(--pill-new-bg); color: var(--pill-new-fg); }
+.pill-persisting { background: var(--pill-persisting-bg); color: var(--pill-persisting-fg); }
+.pill-resolved { background: var(--pill-resolved-bg); color: var(--pill-resolved-fg); }
+.card-body { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: flex-start; margin-top: 10px; }
+.card-text { flex: 1 1 320px; }
+.why { margin: 0 0 6px; }
+.facts { margin: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--text-secondary); font-size: 13px; }
+.count { text-align: right; }
+.count strong { display: block; font-size: 30px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.count span { color: var(--text-secondary); font-size: 13px; }
+
+details { margin-top: 14px; }
+summary { cursor: pointer; color: var(--accent-text); font-size: 14px; font-weight: 500; }
+.table-wrap { overflow-x: auto; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+th { background: var(--surface-2); color: var(--text-secondary); font-weight: 600; }
+tbody tr:last-child td { border-bottom: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.row-new { font-weight: 600; }
+.blank { color: var(--text-secondary); font-style: italic; }
+.ws { padding: 0 3px; border-radius: 4px; background: var(--surface-2); }
+
+.error-card { --sev: var(--sev-critical-bg); }
+.error-card pre {
+  margin: 10px 0 0; padding: 10px 12px; overflow-x: auto; border-radius: 8px;
+  background: var(--surface-2); font-size: 13px; white-space: pre-wrap; word-break: break-word;
+}
+.plain-list { margin: 8px 0 0; padding-left: 20px; color: var(--text-secondary); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 4px 0; }
+.panel .table-wrap { margin: 0; border: 0; }
+.empty { padding: 24px; border: 1px dashed var(--border); border-radius: 14px; color: var(--text-secondary); text-align: center; }
+.empty[hidden] { display: none; }
+footer { margin-top: 48px; color: var(--text-secondary); font-size: 13px; }
+
+@media (max-width: 860px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tile[data-tile="score"] { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .wrap { padding-top: 24px; }
+  h1 { font-size: 23px; }
+  .card { padding: 16px; }
+  .count { text-align: left; }
+  .count strong { display: inline; margin-right: 6px; font-size: 24px; }
+  .filters label, select { width: 100%; }
+  .visible-count { margin-left: 0; }
+}
+@media print {
+  :root {
+{% for name, value in palette.light.items() %}
+    --{{ name }}: {{ value }};
+{% endfor %}
+  }
+  body { background: #ffffff; font-size: 12px; }
+  .wrap { max-width: none; padding: 0; }
+  .filters { display: none !important; }
+  .card, .tile, .panel { break-inside: avoid; page-break-inside: avoid; }
+  .table-wrap { overflow: visible; }
+  summary { color: var(--text); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Data-quality report</p>
+  <h1>{{ r.project }}</h1>
+  <p class="meta">
+    <span>Run <strong>{{ r.run_label }}</strong> · {{ r.run_at|ts }}</span>
+    <span>Data as of <strong>{{ r.as_of }}</strong></span>
+    <span>Source: <strong>{{ r.source_label }}</strong></span>
+    <span>{% if r.previous_label %}compared with {{ r.previous_label }} (as of {{ r.previous_as_of }}){% else %}first run: nothing to compare with{% endif %}</span>
+  </p>
+</header>
+
+<section class="tiles" aria-label="Summary">
+  <div class="tile" data-tile="open"><p class="label">Open issues</p><p class="value">{{ r.open_issues|num }}</p><p class="sub">across {{ r.cards|rejectattr("status", "equalto", "resolved")|list|length }} checks</p></div>
+  <div class="tile" data-tile="new"><p class="label">New since last run</p><p class="value">{{ r.new_issues|num }}</p><p class="sub">{% if r.previous_label %}not in {{ r.previous_label }}{% else %}first run{% endif %}</p></div>
+  <div class="tile" data-tile="resolved"><p class="label">Resolved since last run</p><p class="value">{{ r.resolved_issues|num }}</p><p class="sub">fixed or deleted</p></div>
+  <div class="tile" data-tile="records"><p class="label">Records affected</p><p class="value">{{ r.records_affected|num }}</p><p class="sub">with at least one open issue</p></div>
+  {% if r.score %}
+  <div class="tile" data-tile="score"><p class="label">Score against planted defects</p><p class="value">{{ r.score.caught|num }} of {{ r.score.planted|num }}</p><p class="sub">caught · {{ r.score.false_positives|num }} false positives</p></div>
+  {% else %}
+  <div class="tile" data-tile="score"><p class="label">Score against planted defects</p><p class="value">not scored</p><p class="sub">no defect manifest for this source</p></div>
+  {% endif %}
+</section>
+
+{% if r.errors %}
+<h2>Checks that failed to run</h2>
+<p class="section-note">These checks returned an error, so their records were not checked in this run. Earlier findings are not counted as resolved.</p>
+<section class="cards">
+  {% for e in r.errors %}
+  <article class="card error-card" id="error-{{ e.check_id }}">
+    <div class="card-head">
+      <span class="badge badge-{{ e.severity }}">{{ e.severity|capitalize }}</span>
+      <span class="pill pill-persisting">ERROR</span>
+      <h3>{{ e.title }} <code>{{ e.check_id }}</code></h3>
+    </div>
+    <p class="facts"><span>Owner: {{ e.owner }}</span></p>
+    <pre>{{ e.error }}</pre>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h2>Issues by check</h2>
+<p class="section-note">Sorted by severity, then new issues first.</p>
+
+<div class="filters" id="filters" hidden>
+  <label>Severity
+    <select id="filter-severity" data-filter="severity">
+      <option value="">All severities</option>
+      {% for s in r.severities %}
+      <option value="{{ s }}">{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Owner team
+    <select id="filter-owner" data-filter="owner">
+      <option value="">All teams</option>
+      {% for o in r.owners %}
+      <option value="{{ o }}">{{ o }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Status
+    <select id="filter-status" data-filter="status">
+      <option value="">All statuses</option>
+      {% for s in r.statuses %}
+      <option value="{{ s }}">{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="visible-count" id="visible-count" aria-live="polite"></p>
+</div>
+
+<section class="cards" id="cards">
+  {% for c in r.cards %}
+  <article class="card" id="check-{{ c.check_id }}" data-severity="{{ c.severity }}" data-status="{{ c.status }}" data-owner="{{ c.owner }}">
+    <div class="card-head">
+      <span class="badge badge-{{ c.severity }}">{{ c.severity|capitalize }}</span>
+      <span class="pill pill-{{ c.status }}">{{ c.status|upper }}</span>
+      <h3>{{ c.title }}</h3>
+    </div>
+    <div class="card-body">
+      <div class="card-text">
+        <p class="why">{{ c.why_it_matters }}</p>
+        <p class="facts">
+          <span>Owner: {{ c.owner }}</span>
+          <span>{{ c.new_count|num }} new</span>
+          <span>{{ c.persisting_count|num }} persisting</span>
+          <span>{{ c.resolved_count|num }} resolved</span>
+          <span><code>{{ c.check_id }}</code></span>
+        </p>
+      </div>
+      <div class="count">
+        {% if c.status == "resolved" %}
+        <strong>{{ c.resolved_count|num }}</strong><span>resolved {{ c.record_type }}</span>
+        {% else %}
+        <strong>{{ c.open_count|num }}</strong><span>open {{ c.record_type }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <details>
+      {% set total = c.resolved_count if c.status == "resolved" else c.open_count %}
+      <summary>{% if total > c.samples|length %}Show {{ c.samples|length }} of {{ total|num }} records{% else %}Show {{ c.samples|length }} record{{ "s" if c.samples|length != 1 }}{% endif %}</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Status</th>{% for col in c.sample_columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for row in c.samples %}
+            <tr class="row-{{ row.status }}"><td>{{ row.status }}</td>{% for v in row.values %}{% set shown, marked = display_value(v) %}<td>{% if v is none %}<span class="blank">blank</span>{% elif marked %}<span class="ws" title="leading or trailing whitespace">{{ shown }}</span>{% else %}{{ shown }}{% endif %}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </article>
+  {% endfor %}
+</section>
+<p class="empty" id="empty"{% if r.cards %} hidden{% endif %}>{% if r.cards %}No checks match these filters.{% else %}No open or resolved issues in this run.{% endif %}</p>
+
+{% if r.passing %}
+<details>
+  <summary>Passing checks ({{ r.passing|length }})</summary>
+  <ul class="plain-list">
+    {% for title in r.passing %}
+    <li>{{ title }}</li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+<h2>Record changes since the last run</h2>
+{% if r.record_diff %}
+<p class="section-note">Compared with {{ r.previous_label }}. Changed means the same ID with at least one different value.</p>
+<div class="panel"><div class="table-wrap">
+  <table>
+    <thead><tr><th>Table</th><th class="num">Added</th><th class="num">Removed</th><th class="num">Changed</th></tr></thead>
+    <tbody>
+      {% for d in r.record_diff %}
+      <tr><td>{{ d.table }}</td><td class="num">{{ d.added|num }}</td><td class="num">{{ d.removed|num }}</td><td class="num">{{ d.changed|num }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% else %}
+<p class="section-note">This is the first run, so there is nothing to compare with.</p>
+{% endif %}
+
+{% if r.score %}
+<h2>Score against planted defects</h2>
+<p class="section-note">{{ r.score.line|capitalize }}. Out of scope for this monitor: {{ r.score.out_of_scope|join(", ") }}.</p>
+<div class="panel"><div class="table-wrap">
+  <table>
+    <thead><tr><th>Check</th><th>Defects</th><th class="num">Planted</th><th class="num">Caught</th><th class="num">Missed</th><th class="num">False positives</th></tr></thead>
+    <tbody>
+      {% for s in r.score.rows %}
+      <tr><td>{{ s.title }}</td><td>{{ s.defects }}</td><td class="num">{{ s.planted }}</td><td class="num">{{ s.caught }}</td><td class="num">{{ s.missed }}</td><td class="num">{{ s.false_positives }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% endif %}
+
+<footer>Generated by the CRM Silent-Failure Monitor from synthetic Northwind Analytics data.</footer>
+</div>
+<script>
+(function () {
+  var filters = document.getElementById("filters");
+  var selects = Array.prototype.slice.call(document.querySelectorAll("select[data-filter]"));
+  var cards = Array.prototype.slice.call(document.querySelectorAll("#cards > .card"));
+  var count = document.getElementById("visible-count");
+  var empty = document.getElementById("empty");
+  if (!cards.length) { return; }
+  filters.hidden = false;
+  function apply() {
+    var shown = 0;
+    cards.forEach(function (card) {
+      var match = selects.every(function (s) { return !s.value || card.dataset[s.dataset.filter] === s.value; });
+      card.hidden = !match;
+      if (match) { shown += 1; }
+    });
+    count.textContent = shown + " of " + cards.length + " checks shown";
+    empty.hidden = shown > 0;
+  }
+  selects.forEach(function (s) { s.addEventListener("change", apply); });
+  window.addEventListener("beforeprint", function () {
+    document.querySelectorAll("details").forEach(function (d) { d.dataset.wasOpen = d.open ? "1" : ""; d.open = true; });
+  });
+  window.addEventListener("afterprint", function () {
+    document.querySelectorAll("details").forEach(function (d) { d.open = d.dataset.wasOpen === "1"; });
+  });
+  apply();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+# {{ r.project }}
+
+Run **{{ r.run_label }}**, loaded {{ r.run_at|ts }}. Data as of {{ r.as_of }}. Source: {{ r.source_label }}.
+{% if r.previous_label %}
+Compared with {{ r.previous_label }} (as of {{ r.previous_as_of }}).
+{% else %}
+First run: nothing to compare with.
+{% endif %}
+
+| Summary | |
+|---|---|
+| Open issues | {{ r.open_issues }} |
+| New since last run | {{ r.new_issues }} |
+| Resolved since last run | {{ r.resolved_issues }} |
+| Records affected | {{ r.records_affected }} |
+| Score | {% if r.score %}{{ r.score.line }}{% else %}not scored{% endif %} |
+{% if r.errors %}
+
+## Checks that failed to run
+
+Earlier findings of these checks are not counted as resolved.
+
+{% for e in r.errors %}
+- `{{ e.check_id }}` ({{ e.severity }}, {{ e.owner }}): {{ e.error|md }}
+{% endfor %}
+{% endif %}
+
+## Issues by check
+
+Sorted by severity, then new issues first.
+{% if not r.cards %}
+
+No open or resolved issues in this run.
+{% endif %}
+{% for sev in severities %}
+{% set group = r.cards|selectattr("severity", "equalto", sev)|list %}
+{% if group %}
+
+### {{ sev|capitalize }}
+{% for c in group %}
+
+#### {{ c.status|upper }} · {{ c.title|md }} (`{{ c.check_id }}`)
+
+{{ c.why_it_matters|md }}
+
+Owner: {{ c.owner }} · {{ c.open_count }} open ({{ c.new_count }} new, {{ c.persisting_count }} persisting) · {{ c.resolved_count }} resolved
+
+| {{ (["status"] + c.sample_columns|list)|join(" | ") }} |
+|{% for _ in range(c.sample_columns|length + 1) %}---|{% endfor %}
+
+{% for row in c.samples %}
+| {{ row.status }} | {% for v in row.values %}{{ display_value(v)[0]|md }}{{ " | " if not loop.last }}{% endfor %} |
+{% endfor %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% if r.passing %}
+
+## Passing checks
+
+{% for title in r.passing %}
+- {{ title|md }}
+{% endfor %}
+{% endif %}
+
+## Record changes since the last run
+
+{% if r.record_diff %}
+| Table | Added | Removed | Changed |
+|---|---|---|---|
+{% for d in r.record_diff %}
+| {{ d.table }} | {{ d.added }} | {{ d.removed }} | {{ d.changed }} |
+{% endfor %}
+{% else %}
+This is the first run, so there is nothing to compare with.
+{% endif %}
+{% if r.score %}
+
+## Score against planted defects
+
+{{ r.score.line|capitalize }}. Out of scope for this monitor: {{ r.score.out_of_scope|join(", ") }}.
+
+| Check | Defects | Planted | Caught | Missed | False positives |
+|---|---|---|---|---|---|
+{% for s in r.score.rows %}
+| `{{ s.check_id }}` | {{ s.defects }} | {{ s.planted }} | {{ s.caught }} | {{ s.missed }} | {{ s.false_positives }} |
+{% endfor %}
+{% endif %}

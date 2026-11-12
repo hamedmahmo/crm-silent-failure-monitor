@@ -1,0 +1,24 @@
+# Business rules the checks rely on. Check SQL reads them from the run_context and deal_stages
+# views. The as_of date is not set here: it comes from each snapshot.
+# tests/test_snapshot.py checks these values against the constants in data/generate.py.
+
+# Contacts created on or after this date must have an original source (D22).
+source_required_from: 2026-01-01
+
+# An open deal that has been in the same stage for more days than this is stale (D21).
+stale_stage_days: 60
+
+# Top of the price list in USD. Larger amounts are almost always cents typed into a dollar field (D07).
+max_deal_amount: 150000
+
+# Deal stage picklist, using HubSpot's internal stage IDs for the default sales pipeline.
+deal_stages:
+  open:
+    - appointmentscheduled
+    - qualifiedtobuy
+    - presentationscheduled
+    - decisionmakerboughtin
+    - contractsent
+  closed:
+    - closedwon
+    - closedlost

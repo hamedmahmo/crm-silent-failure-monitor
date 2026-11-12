@@ -19,8 +19,8 @@ format: ## Fix formatting and safe lint issues with ruff
 	uv run ruff format .
 	uv run ruff check --fix .
 
-demo: ## Generate the Northwind dataset with defects into data/output
-	uv run python data/generate.py --defects --out data/output
+demo: ## Offline demo: generate day 1, simulate day 2, run the monitor on both, open reports/latest.html
+	uv run python -m monitor demo --out data/output --reports reports
 
 hooks: ## Run every pre-commit hook (including gitleaks) on all files
 	uv run pre-commit run --all-files

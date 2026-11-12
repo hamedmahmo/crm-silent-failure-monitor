@@ -2,6 +2,86 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-11: One self-contained HTML report rendered with Jinja2
+
+**Decision:** The report is one HTML file with inline CSS and a small inline script (filters, opening sample tables before printing), rendered from `monitor/templates/report.html.j2` with autoescaping on. A markdown version is rendered from the same report model. Colours are CSS custom properties; severity colours reuse a fixed status palette (critical red, serious orange, warning amber, neutral grey), and every text and background pair is tested for 4.5:1 contrast in light and dark mode.
+
+**Context:** The report has to open from disk, as a CI artifact and on GitHub Pages with no network access, and it is meant to be read by RevOps and sales-ops staff, not just engineers. Building the page by string concatenation would make escaping easy to get wrong; record values come from the CRM and can contain anything.
+
+**Alternatives:** A static site generator; a JavaScript framework loaded from a CDN; plain `html.escape` string building (the first plan).
+
+**Consequences:** Jinja2 is a runtime dependency. Filtering works on the check card's status, so "Resolved" shows only checks with no open findings left; partly resolved checks show their resolved count on the card. The run timestamp is the only part of the report that differs between two runs on the same data, which the demo test relies on.
+
+## 2026-11-11: A scripted day 2 instead of random changes
+
+**Decision:** `data/simulate_day2.py` applies a fixed story to day-1 output: specific counts of fixes, merges (deletions), new defects and harmless edits, chosen with a seeded RNG, with `as_of` moved forward one day. It writes the day-2 manifest and a `changes.json` with every change.
+
+**Context:** Change detection needs a second snapshot whose differences are known exactly, so tests can check that "new" and "resolved" match. Random edits would make some changes trip checks by accident, and the expected answer would have to be recomputed by the same kind of logic being tested.
+
+**Alternatives:** Generating day 2 with a different seed (every record would change); hand-editing CSVs (not repeatable).
+
+**Consequences:** New IDs are allocated before deletions so a deleted ID is never reused, which would otherwise turn a "deleted" resolution into "fixed". Moving `as_of` by one day creates no aging findings with this data (clean open deals close on or after 2026-07-01 and entered their stage on or after 2026-05-02); the zero-false-positive day-2 test would catch it if that changed.
+
+## 2026-11-11: Findings of a check that errored are not resolved
+
+**Decision:** When comparing runs, findings of a check that errored in the current run are left out entirely: they are neither persisting nor resolved.
+
+**Context:** If a check breaks, it returns nothing. Comparing that with the previous run would mark every earlier finding as resolved, which is exactly the kind of silent failure the monitor exists to catch.
+
+**Alternatives:** Treat them as persisting (would claim knowledge the run doesn't have).
+
+**Consequences:** The report lists errored checks first, and the resolved count only includes checks that actually ran.
+
+## 2026-11-11: A failing check is recorded as an error, not skipped
+
+**Decision:** Each check runs on its own. A check whose SQL fails, or that returns anything other than one `record_id` column, is stored in `check_runs` with status `error` and the message; the other checks still run.
+
+**Context:** The point of the project is catching failures that make no noise. If a broken check just returned nothing, the report would show the problem as fixed.
+
+**Alternatives:** Stop the whole run on the first error; log and skip.
+
+**Consequences:** The report has to show errored checks first (milestone 3), and `monitor run` will exit with status 1 when any check errors so the scheduled job fails visibly.
+
+## 2026-11-11: Score each check only against planted records of its own record type
+
+**Decision:** A check declares one `record_type`. Its planted set is the manifest `record_ids` of its defects that exist in that table. D17 (no owner, on contacts and deals) is covered by two checks, `contact_no_owner` and `deal_no_owner`. Overall totals count a planted record as caught if any check targeting its defect found it.
+
+**Context:** The manifest lists D17's 4 contact IDs and 4 deal IDs together. Scored against the whole list, each half of a split check would show 4 false misses. One check returning two record types would make the report's sample tables and `sample_columns` ambiguous.
+
+**Alternatives:** One D17 check with a `UNION` of contacts and deals; a record-type field on each manifest ID (would mean changing the template generator).
+
+**Consequences:** 18 checks cover 17 in-scope defects. Scope is derived from each defect's `record_types`, so D05 (companies and usage events) and D15 (tickets and contacts) are out of scope along with the usage-event and ticket defects.
+
+## 2026-11-11: Checks are SQL queries in YAML files
+
+**Decision:** Each check is one YAML entry in `checks/*.yaml` with `id`, `title`, `severity`, `owner`, `record_type`, `defects`, `why_it_matters`, `sample_columns` and `sql`. The loader rejects missing or unknown fields, so a typo fails loudly instead of being ignored.
+
+**Context:** RevOps analysts who know SQL should be able to add a check without touching Python. The same SQL can be pasted into a DuckDB session to debug it.
+
+**Alternatives:** Python functions per check (the approach in `tests/test_generate.py`); a rules DSL such as Great Expectations or Soda.
+
+**Consequences:** The SQL is tested against the generator: every check must find exactly its planted records and nothing in clean data. The severities and owning teams (`finance`, `revops`, `sales-ops`, `marketing-ops`) are a first proposal and can be changed in the YAML without code changes.
+
+## 2026-11-11: Store snapshot values as text, with only empty strings as NULL
+
+**Decision:** Every snapshot column is stored as VARCHAR exactly as read. An empty string becomes NULL; nothing else is trimmed or converted. Checks cast to numbers and dates themselves (`TRY_CAST(amount AS DOUBLE)`, `CAST(left(created_at, 10) AS DATE)`).
+
+**Context:** Several defects are formatting problems: `closedwon ` with a trailing space (D09), an email with a trailing space (D03), and an amount of `0` versus a blank (D06). A typed load would trim, convert or reject exactly the values the monitor needs to see. HubSpot's API also returns property values as strings, so the same rule fits the live source in milestone 5.
+
+**Alternatives:** DuckDB's `read_csv` with type detection; typed tables with a cleaning step before the checks.
+
+**Consequences:** Check SQL is a little longer because of the casts. Rows are inserted from Python with parameterized multi-row `VALUES` statements (250 rows each) rather than `read_csv`, so the CSV sniffer can't change values. Switching from `executemany` to chunked inserts cut `tests/test_snapshot.py` from 13.7 s to 7.9 s.
+
+## 2026-11-11: DuckDB file for snapshots and findings
+
+**Decision:** Each run's snapshot, findings and check results go into one DuckDB file (`data/output/monitor.duckdb` by default). Every snapshot table has a `run_id`, and `use_run()` creates temp views (`owners`, `companies`, `contacts`, `deals`, `run_context`, `deal_stages`) so check SQL never mentions run IDs.
+
+**Context:** Checks are SQL in YAML, change detection compares runs, and the scheduled job (milestone 7) needs to carry the previous run forward. A single embedded file covers all three without a server, and a check's SQL can be pasted into the DuckDB CLI to debug it.
+
+**Alternatives:** SQLite (weaker SQL: no `EXCLUDE`, `TRY_CAST` or regex functions by default); pandas in memory (checks would be Python, not SQL, and nothing persists between runs).
+
+**Consequences:** The file grows by one full snapshot per run, a few thousand rows for Northwind. A pruning option may be needed once the job runs daily against a real portal.
+
 ## 2026-11-11: Flag each defect as plantable in HubSpot or not
 
 **Decision:** Every defect in `data/DEFECTS.md` and the `DEFECTS` registry has a `hubspot_plantable` yes/no flag and a fixed record count.
