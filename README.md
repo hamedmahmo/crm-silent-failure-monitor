@@ -4,7 +4,7 @@ A job that snapshots CRM data, runs SQL checks for records that break pipeline a
 
 **Latest report:** https://hamedmahmo.github.io/crm-silent-failure-monitor/ (the offline demo, rebuilt on every push to `main`).
 
-Status: milestones 1-3 are built and run offline on synthetic data. Milestone 4 seeded a HubSpot developer test account on 2026-11-12: 203 companies, 1,031 contacts and 570 deals, with 75 planted records in the 12 defects HubSpot accepts. Milestone 5, which reads the test account back and runs the checks on it, is built and tested against a mocked HubSpot API but hasn't been run against the portal yet. The digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
+Status: milestones 1-3 are built and run offline on synthetic data. Milestone 4 seeded a HubSpot developer test account on 2026-11-12: 203 companies, 1,031 contacts and 570 deals, with 75 planted records in the 12 defects HubSpot accepts. Milestone 5 reads the test account back and runs the checks on it: on 2026-11-12 it caught 75 of 75 planted records with 0 false positives, and every seeded record read back unchanged. The digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
 
 ## Demo
 
@@ -122,7 +122,7 @@ To run the monitor on one snapshot folder: `uv run python -m monitor run --path 
 - Wrote the GitHub Pages workflow and made the report screenshot and the demo GIF from a real `make demo` run.
 - Wrote the decision entries, the runbook and the first draft of this README.
 
-**How I checked its work:** I reviewed and approved the plan in `docs/plan.md` before any monitor code was written, and Claude Code brought open design questions back to me instead of settling them itself; the HubSpot date shift and owner mapping were decided that way on 2026-11-11. The definition of done in `CLAUDE.md` sets the bar for each change: tests written first, `make test`, `make lint` and `make hooks` passing, and `make demo` catching every planted record with 0 false positives on both days while clean data gives none. CI runs the same targets on Linux, and I merged the milestone 1-3 pull request after it passed there. For milestone 4, Claude Code stopped before every live HubSpot step and waited for my go-ahead. The first probe run showed that HubSpot rejects `.example` emails; it stopped there, before seeding, and I chose the `.example.com` fix from the options it laid out. After the seed, a second run created 0 records and the answer key scored 75 of 75 with 0 false positives.
+**How I checked its work:** I reviewed and approved the plan in `docs/plan.md` before any monitor code was written, and Claude Code brought open design questions back to me instead of settling them itself; the HubSpot date shift and owner mapping were decided that way on 2026-11-11. The definition of done in `CLAUDE.md` sets the bar for each change: tests written first, `make test`, `make lint` and `make hooks` passing, and `make demo` catching every planted record with 0 false positives on both days while clean data gives none. CI runs the same targets on Linux, and I merged the milestone 1-3 pull request after it passed there. For milestone 4, Claude Code stopped before every live HubSpot step and waited for my go-ahead. The first probe run showed that HubSpot rejects `.example` emails; it stopped there, before seeding, and I chose the `.example.com` fix from the options it laid out. After the seed, a second run created 0 records and the answer key scored 75 of 75 with 0 false positives. For milestone 5, a test seeds a mocked HubSpot, reads it back and requires the result to match the answer key. That test found one wrong reference in the answer key. The first live read then scored 75 of 75 with 2 false positives. They were HubSpot's two sample contacts, which have no owner. After they were removed, a script comparing the live read-back with the answer key record by record found no differences.
 
 ## Decisions
 
@@ -130,7 +130,8 @@ Design decisions and their reasons are logged in [docs/decisions.md](docs/decisi
 
 ## Limitations
 
-- Reading the HubSpot test account (milestone 5) has only run against a mocked API so far; the digest and the scheduled run (milestones 6-7) are not built.
+- The live HubSpot run is started by hand (`make snapshot-hubspot`); the digest and the scheduled run (milestones 6-7) are not built.
+- Live scoring against the answer key is exact only on the seed day (or with `--as-of` set to it). On later days, open deals age past their close dates and stage limits, and the report shows them as new findings outside the answer key.
 - Data sent to HubSpot uses `.example.com` emails and domains instead of `.example`, because HubSpot rejects the `.example` top-level domain.
 - The checks are exact rules for the planted defects. Duplicate detection only catches emails that differ by letter case or surrounding spaces, and companies with the same domain; it doesn't do fuzzy name matching.
 - The stale-stage check (D21) needs a `stage_entered_at` value. HubSpot's own stage-entry properties are read-only, so seeded deals carry it in a custom property, `northwind_stage_entered_at`. Deals added by hand in HubSpot don't have it, so D21 can't flag them.

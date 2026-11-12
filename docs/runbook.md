@@ -144,6 +144,7 @@ These commands write to a HubSpot developer test account. `make test` never call
 3. In the portal settings, switch these off. HubSpot doesn't expose them through the API, and each one changes seeded records:
    - Data Management > Objects > Companies > Automation > "Create and associate companies with contacts" (would add companies with no `northwind_id`).
    - Data Management > Objects > Contacts > Lifecycle Stage: the "Default stage" rule, and the Automate toggles for first deal created, deal won and lead associated (would fill the blank lifecycle stages D16 plants).
+4. Delete HubSpot's sample contacts (Contacts; the two with `hubspot.com` addresses). A new portal comes with them. They use real people's names, have no owner, and would show up in every live run as unowned contacts outside the answer key. The post-seed checks report any contact or deal without `northwind_id`.
 
 ### Commands
 
@@ -169,7 +170,7 @@ Every command first reads `/account-info/2026-09/details` and stops unless `acco
 - Emails and domains: HubSpot rejects the `.example` top-level domain, so `name.example` is sent as `name.example.com` (also reserved). The seed output folder has the rewritten values.
 - Industry: the generator's labels map to HubSpot's `industry` options by label (`INDUSTRY_LABELS` in `monitor/hubspot/seed.py`). A label with no matching option stops the seed before any write.
 
-Post-seed checks (exit 1 if any fails): the number of records with `northwind_id` per object matches the plan, no company exists without `northwind_id`, and the 10 D16 contacts still have no lifecycle stage. Search results lag writes by a few seconds, so the counts are retried for up to 30 seconds.
+Post-seed checks (exit 1 if any fails): the number of records with `northwind_id` per object matches the plan, no company, contact or deal exists without `northwind_id`, and the 10 D16 contacts still have no lifecycle stage. Search results lag writes by a few seconds, so the counts are retried for up to 30 seconds.
 
 Output in `data/output/hubspot/` (gitignored): `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv` and `metadata.json` (the seeded data in snapshot form, as of the seed day), `defects_manifest.json` (the 12 plantable defects), and `seed.json` (seed day, date shift, owner ID, counts; no token). `uv run python -m monitor run --path data/output/hubspot --fresh --db data/output/hubspot.duckdb` scores it offline.
 
@@ -240,6 +241,7 @@ Milestone 7 replaces the offline demo with the scheduled HubSpot run.
 | `not scored (no answer key at ...)` | run `make seed-hubspot` first, or pass `--manifest` with the path of an existing `defects_manifest.json` |
 | `compare_snapshots.py` reports differences | look at the first example in each line; a value HubSpot changed after seeding (automation, a manual edit) shows up here before it shows up as a finding |
 | `400 VALIDATION_ERROR ... INVALID_EMAIL` | HubSpot rejects the address; emails sent to HubSpot must end in `.example.com`, not `.example` (see `hubspot_email` in `monitor/hubspot/seed.py`) |
+| post-seed check: contacts or deals without `northwind_id` | HubSpot's sample contacts or records added by hand; archive them in HubSpot (see Setup step 4) |
 | post-seed check: companies without `northwind_id` | switch off "Create and associate companies with contacts", run `hubspot reset --yes`, archive the extra companies in HubSpot, and seed again |
 | post-seed check: D16 contact has a lifecycle stage | switch off the lifecycle stage automation, run `hubspot reset --yes`, then seed again (a second seed leaves blank fields out, so it can't clear a stage HubSpot filled in) |
 | The Pages URL shows the README instead of the report | set Pages Source to "GitHub Actions" in the repository settings, then re-run "Publish report" |

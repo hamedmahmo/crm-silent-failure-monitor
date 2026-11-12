@@ -2,6 +2,16 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Remove HubSpot's sample contacts from the test account
+
+**Decision:** The two sample contacts HubSpot creates in a new portal were archived on 2026-11-12 (record IDs 592069423803 and 592102165221; a one-off API call after checking each was an untagged contact with a `hubspot.com` address). The runbook setup now says to delete them, and the post-seed checks report any contact or deal without `northwind_id`.
+
+**Context:** The first live M5 run scored 75 of 75 with 2 false positives. Both were these contacts: they have no owner, so `contact_no_owner` flagged them, correctly but outside the answer key. They also use real people's names, which the project's data rules exclude, and M7 will publish live reports.
+
+**Alternatives:** Keep them and treat the two findings as expected. That keeps real-person data in a portal whose reports will be public.
+
+**Consequences:** The portal holds only synthetic Northwind records. A record someone adds by hand still gets checked and shows up as an `HS-` finding; the post-seed check reports how many there are at seed time.
+
 ## 2026-11-12: Map HubSpot records to snapshot rows by `northwind_id`, with seeded and hand-made records read differently
 
 **Decision:** `run --source hubspot` reads every unarchived company, contact and deal.
