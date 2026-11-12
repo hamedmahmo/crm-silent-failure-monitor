@@ -155,17 +155,195 @@ Docs in M3: runbook (new demo, outputs, CLI), decisions entries (text storage wi
 
 After M3: stop and summarize. No HubSpot calls in M1-M3.
 
+## Milestone 4: HubSpot seed, reset and probes
+
+**Status: approved 2026-11-12 with two changes: probe P6 and the `tickets` scope are dropped (D14 is out of scope and its registry flag stays as it is), and the setup steps below are done.** It replaces the M4 sketch that was approved with the rest of the plan on 2026-11-11, and keeps its decisions except the date rule (see "Correction to the date decision").
+
+M4 adds commands that confirm the portal is the developer test account, create the custom properties, load Northwind day 1 with the HubSpot-plantable defects, remove it again, and probe the HubSpot behaviours the design depends on. M5 reads the data back.
+
+### What the HubSpot docs check found (2026-11-12)
+
+- **Date-based API versions.** Since 2026-03-30 HubSpot versions its API by date, and `v3`/`v4` paths are "legacy" with no deprecation date yet. M4 uses the `2026-09` paths (`/crm/objects/2026-09/...`, `/crm/properties/2026-09/...`, `/crm/associations/2026-09/...`, `/account-info/2026-09/details`), set in one constant. From `2026-09`, validation rules an admin configures also apply to API writes; a new test account has none.
+- **Guard.** `account-info` returns `portalId` and `accountType`; a developer test account is `DEVELOPER_TEST` (others: `STANDARD`, `SANDBOX`, `APP_DEVELOPER`).
+- **Original source.** The docs disagree on whether `hs_analytics_source` can be written. The seed stores the generator's `source` in a custom property, `northwind_source`, and a probe reads the standard property's `readOnlyValue` so the README can say why.
+- **Industry.** `industry` is an enumeration of about 150 HubSpot values. The 12 generator labels (Software, Logistics, ...) have to be mapped to those values. The map is built from the live option list (probe P5) and kept in code, with a test that every generator label maps.
+- **Portal automation can change records after seeding.** These settings can't be read through the API:
+  - "Create and associate companies with contacts" makes a company for each contact email domain. That adds companies without `northwind_id`, which M5 would report as D04.
+  - The lifecycle "Default stage" fills D16's blank lifecycle stages.
+  - The lifecycle automation (first deal created, deal won) moves contacts to Opportunity or Customer and also fills D16 blanks.
+
+  They are switched off by hand before seeding (see "Your steps"), and probes P2 and P3 confirm it.
+- **Limits.** 100 inputs per batch upsert; 2,000 per association batch; 100 requests per 10 seconds; search 5 requests per second, 200 results per page, 10,000 per query. A seed is about 30 requests.
+- **Errors.** Batch upsert can return 200 with `errors` and `numErrors` in the body; any error there fails the command.
+- **Owners.** `/crm/owners/2026-09` with `archived=true` lists deactivated users. Records take the owner `id`, not the `userId`.
+- **Not documented, so probed:**
+  - whether a closed-won deal keeps a `closedate` earlier than its create date. All 377 closed deals in the generated data rely on this, not just D08.
+  - whether a developer test account can create a service key, and which scope `account-info` needs.
+
+### Correction to the date decision (approved 2026-11-12)
+
+The 2026-11-11 decision shifts every business date forward by N days (N = seed day − 2026-06-30) and keeps the original create time in `northwind_created_at`. Checked against the generated data with a seed day of 2026-11-13 (N = 136):
+
+- If closed deals' `close_date` shifts and `created_at` doesn't, all 5 D08 deals close after they were created and are missed.
+- If `created_at` shifts as well, 57 clean contacts with a blank source move from late 2025 to after the 2026-01-01 cutoff and become D22 false positives.
+
+Rule: shift only the dates that a check measures against the as-of date, which are open deals' `close_date` (D20) and `stage_entered_at` (D21). Create times, closed deals' `close_date` and `closed_at` stay as generated. The live run's as-of date is the run date.
+
+| Check | Compares | Effect of the proposal on the seeding day |
+|---|---|---|
+| D08 | closed deal's `close_date` with `created_at` | neither shifts, same result as offline |
+| D20 | open deal's `close_date` with as-of | both move by N, same result |
+| D21 | open deal's `stage_entered_at` with as-of | both move by N, same result |
+| D22 | contact `created_at` with the fixed 2026-01-01 cutoff | neither shifts, same result |
+
+A test runs all 18 checks on the seed tables with as-of = seed day and expects exactly the live manifest (75 records) with 0 false positives, for several seed days. The correction is recorded in `docs/decisions.md`.
+
+### Your steps before the first live call (done 2026-11-12)
+
+1. In the developer test account, create a service key (Development > Keys > Service keys) with `crm.objects.companies.read/write`, `crm.objects.contacts.read/write`, `crm.objects.deals.read/write`, `crm.objects.owners.read`, `crm.schemas.companies.read/write`, `crm.schemas.contacts.read/write`, `crm.schemas.deals.read/write`. If a test account can't create service keys, a private app token works the same way (`Authorization: Bearer`).
+2. Put `HUBSPOT_ACCESS_TOKEN` and `HUBSPOT_PORTAL_ID` in `.env`. (`.env.example` already lists `HUBSPOT_PORTAL_ID=`.)
+3. In the portal settings, switch off:
+   - Data Management > Objects > Companies > Automation > "Create and associate companies with contacts".
+   - Data Management > Objects > Contacts > Lifecycle Stage: the "Default stage" rule and the Automate toggles for "first deal created", "deal won" and "lead associated".
+4. Tell me. The first live call is the read-only `hubspot check`.
+
+### Layout
+
+```
+monitor/hubspot/
+  __init__.py
+  client.py       HubSpotClient: httpx.Client, API_VERSION, token from the environment, retries, batching
+  guard.py        check_portal(): DEVELOPER_TEST and portal ID match, before any write
+  properties.py   the northwind property group and properties; ensure_properties() creates only missing ones
+  seed.py         build_seed() (pure: filter, map, shift dates, payloads) and apply_seed() (HTTP)
+  reset.py        find tagged records with search, archive in batches
+  probe.py        probes P1-P5, write docs/hubspot-verification.md
+```
+
+- CLI: `python -m monitor hubspot check | probe | seed | reset [--yes]`.
+- Make targets, each a single `uv run` line: `hubspot-check`, `seed-hubspot`, and `reset-hubspot`, which is a dry run. Deleting needs `uv run python -m monitor hubspot reset --yes` typed by hand.
+- Dependencies: `httpx` and `python-dotenv` (`uv add`). The generator stays stdlib-only.
+
+### Client
+
+- The token comes from `HUBSPOT_ACCESS_TOKEN`, loaded with python-dotenv.
+- If the token is missing, the command exits 2 and names the variable, never a value.
+- The token is never printed, logged or put in an exception message; the client's `repr` hides it.
+- Retries: on 429 and 5xx, honour `Retry-After` if it is sent; otherwise use exponential backoff with jitter, at most 5 attempts. Other 4xx errors fail at once with HubSpot's `message` and `category`.
+- Batching: 100 inputs per upsert or archive call, 2,000 per association call. Search requests are paced to 5 per second.
+
+### Property mapping
+
+All custom properties are in a `northwind` group, use a `northwind_` prefix, and are created only if missing. `northwind_id` is a string with unique values on companies, contacts and deals, and is the upsert key. Values that are blank in the generator are left out of the payload, so they stay empty in HubSpot.
+
+| Generator column | Companies | Contacts | Deals |
+|---|---|---|---|
+| `*_id` | `northwind_id` | `northwind_id` | `northwind_id` |
+| `name` / names | `name` | `firstname`, `lastname` | `dealname` = `<company name> - DEAL-xxxxx` (no generator column) |
+| `domain`, `email`, `job_title` | `domain` | `email`, `jobtitle` | |
+| `industry`, `country` | `industry` (mapped), `country` | | |
+| `employee_band`, `plan_tier`, `churned_at` | `northwind_employee_band`, `northwind_plan_tier`, `northwind_churned_at` | | |
+| `lifecycle_stage`, `source` | | `lifecyclestage`, `northwind_source` | |
+| `stage`, `amount`, `currency` | | | `dealstage` (pipeline `default`), `amount`, `deal_currency_code` |
+| `close_date`, `stage_entered_at`, `closed_at` | | | `closedate`, `northwind_stage_entered_at`, `northwind_closed_at` |
+| `owner_id` | `hubspot_owner_id` | `hubspot_owner_id` | `hubspot_owner_id` |
+| `created_at` | `northwind_created_at` | `northwind_created_at` | `northwind_created_at` |
+| `company_id`, `primary_contact_id` | | association to company | associations to company and contact |
+
+The sketch called the D21 property `stage_entered_at`; it becomes `northwind_stage_entered_at` so every property M4 creates has the same prefix. Owners: every `OWN-xx` maps to the portal's single active owner (decided 2026-11-11). If the portal has more than one active owner, the seed stops and asks for `HUBSPOT_OWNER_ID`.
+
+### Seed
+
+1. Generate day 1 with seed 42 and defects, then skip the records of the in-scope defects HubSpot rejects (D01, D02, D03, D09, D10). That leaves 203 companies, 1,031 contacts and 570 deals. No skipped record belongs to another defect. One deal loses its primary contact association because that contact is a skipped duplicate.
+2. Shift open deals' `close_date` and `stage_entered_at` by N days.
+3. Run the guard, then `ensure_properties`.
+4. Upsert companies, then contacts, then deals, keyed on `northwind_id`.
+5. Create the associations using the HubSpot IDs returned by the upserts. Seeding twice on the same day sends identical payloads and changes nothing.
+6. Post-seed checks:
+   - The record counts with `northwind_id` match the plan.
+   - No company exists without `northwind_id`, which would mean auto-created companies.
+   - The 10 D16 contacts still have a blank lifecycle stage.
+7. Write `data/output/hubspot/`:
+   - the seed tables as CSV, the answer key for M5;
+   - `defects_manifest.json`, filtered to the 12 plantable in-scope defects and 75 records;
+   - `seed.json` with the seed day, N, owner ID, counts and the time of the run, but no token.
+
+### Reset
+
+For each object type, search for `northwind_id` HAS_PROPERTY, paging 200 at a time. This also finds the probe records, which are tagged `PROBE-xx`. A dry run prints the counts. `--yes` archives exactly those IDs in batches of 100. Custom properties are kept.
+
+### Probes
+
+Each probe creates records tagged `northwind_id = PROBE-xx`, reads them back, and archives them. The results go into `docs/hubspot-verification.md` with the date, HTTP status and what came back, but no portal ID or token.
+
+| Probe | Question | Affects |
+|---|---|---|
+| P1 | A deal created at `closedwon` with a `closedate` 30 days before today: accepted, and is `closedate` kept? | every clean closed deal, D08 |
+| P2 | A contact created without `lifecyclestage`, then associated with a deal: still blank? | D16, settings |
+| P3 | A contact with an email at a new `.example` domain: was a company created? | D04, settings |
+| P4 | Is `hs_analytics_source` read-only (`readOnlyValue`)? | `northwind_source` |
+| P5 | The `industry` option list | the industry map |
+
+If a probe contradicts this plan, I stop and bring it back before seeding. After the probes, the registry in `data/generate.py`, `DEFECTS.md` and `tests/test_generate.py` are updated together if the D08 "to confirm" note is settled. D10 stays offline-only (decided 2026-11-11).
+
+### Tests first
+
+All tests use `httpx.MockTransport`. A `conftest.py` fixture makes any real HTTP transport raise, so `make test` can't reach the network.
+
+- `test_hubspot_client.py`:
+  - Bearer header on every request.
+  - The token never appears in logs, exception messages or `repr`; a missing token gives an error naming the variable.
+  - A 429 with `Retry-After` waits that long, using an injected sleep.
+  - A 5xx backs off and gives up after 5 attempts.
+  - A 400 fails at once with HubSpot's message.
+  - 250 inputs are sent as 100 + 100 + 50.
+  - A 200 response with `numErrors` > 0 raises.
+- `test_hubspot_guard.py`:
+  - Accepts `DEVELOPER_TEST` with a matching portal ID.
+  - Refuses `STANDARD`, `SANDBOX`, a different portal ID, and a missing `HUBSPOT_PORTAL_ID`.
+  - When the guard refuses, the transport records no write request.
+- `test_hubspot_properties.py`: creates the group and only the missing properties; a second run sends no create requests; `northwind_id` has unique values.
+- `test_hubspot_seed.py` (mostly on the pure `build_seed`):
+  - Skips exactly the D01, D02, D03, D09 and D10 records.
+  - The live manifest has 12 defects and 75 records.
+  - Only open deals' `close_date` and `stage_entered_at` move, by N days.
+  - The 18 checks on the seed tables with as-of = seed day return exactly the live manifest with 0 false positives, for seed days 2026-07-01, 2026-11-13 and 2027-06-30.
+  - Every owner maps to the one owner ID, and blank owners stay blank.
+  - Every generator industry maps to a value in the recorded option list (`tests/fixtures/hubspot_industry_options.json`, saved from probe P5).
+  - Blank values are left out of the payload.
+  - Payload shapes for upsert and associations; the same inputs give byte-identical payloads.
+  - `apply_seed` runs the guard first and sends companies before contacts before deals before associations.
+  - The post-seed check fails when the mock returns a company without `northwind_id`.
+- `test_hubspot_reset.py`: searches only with the `northwind_id` filter and pages through all results; a dry run sends no archive request; `--yes` archives exactly the found IDs in batches of 100.
+- `test_hubspot_cli.py`: each subcommand exits 2 without the environment variables, before any request; `hubspot reset` without `--yes` deletes nothing.
+
+### Order of live work
+
+1. `hubspot check` (read-only).
+2. `hubspot probe`, reviewing the results with you if any contradicts the plan.
+3. `seed-hubspot`, including the post-seed checks.
+4. `seed-hubspot` again, which must report no changes.
+5. `reset-hubspot` dry run, whose counts must match the seed.
+
+The seeded data stays in the portal for M5.
+
+### Docs in M4
+
+- Runbook: environment variables, service key scopes, the portal settings, the commands and their outputs, and troubleshooting.
+- Decision entries: the date-rule correction, `northwind_source`, the industry map, API version `2026-09`, and switching off the portal automation.
+- `docs/hubspot-verification.md`.
+- README status line.
+
+### Done for M4
+
+- Everything in the CLAUDE.md definition of done holds.
+- `make demo` results are unchanged.
+- No HubSpot call in `make test`.
+- On the seeding day, the seed tables score 75 of 75 with 0 false positives offline. The live read-back is scored in M5.
+
 ## Milestones 4-8 (planned, not built now)
 
-**M4 HubSpot seed and reset (live).**
-- `monitor/hubspot/client.py`: httpx client, `Authorization: Bearer` from `HUBSPOT_ACCESS_TOKEN` (service key) loaded with python-dotenv into the environment. The token is never printed or logged, and request logging redacts headers. On 429 and 5xx: retry honoring `Retry-After`, otherwise exponential backoff with jitter, capped attempts. Batch endpoints, 100 records per call.
-- Safety guard before any write: `GET /account-info/v3/details` must report a developer test account, and its portal ID must equal `HUBSPOT_PORTAL_ID` from the environment. Otherwise the command stops.
-- Properties: a `northwind` property group; `northwind_id` (string, unique values) on companies, contacts and deals; `northwind_created_at` (datetime); `stage_entered_at` (datetime) on deals for D21. Each is created only if missing.
-- Seed (`make seed-hubspot`): generate with the same seed, plant only `hubspot_plantable` defects, skip records belonging to non-plantable defects (D01-D03, D09, D10), and upsert with `batch/upsert` on `northwind_id`, so running it twice changes nothing. Associations (contact to company, deal to company and contact) use the v4 batch associations API. Owners: every `OWN-xx` maps to the single user in the test account; no users are created (decided 2026-11-11).
-- Dates: business dates are shifted by (seed day − 2026-06-30) so relative rules (D20, D21) hold on the seeding day. HubSpot sets `createdate` itself, so the original creation time goes in `northwind_created_at`, and the live snapshot uses it as `created_at` when present. Without this, every clean closed deal would look like D08 and every pre-cutoff blank-source contact like D22. Approved 2026-11-11 (see `docs/decisions.md`).
-- Reset (`make reset-hubspot`): search each object type for records with `northwind_id` set and archive only those, in batches. Dry run by default; `--yes` to delete.
-- Verify D08 and D14 (ticket closed before created; D10 stays offline-only, decided 2026-11-11) with probe records tagged `northwind_id`, record the HTTP results in `docs/hubspot-verification.md`, then update the registry, `DEFECTS.md` and the tests together.
-- Tests use `httpx.MockTransport`: auth header, retries and backoff, batching, idempotent upsert payloads, reset only touching tagged records, guard refusing a non-test portal. No network in `make test`.
+**M4 HubSpot seed and reset (live).** Detailed in "Milestone 4" above (approved 2026-11-12).
 
 **M5 HubSpot snapshot.** Read companies, contacts and deals with paged list endpoints and the properties the checks need; associations through v4 batch read; owners from `/crm/v3/owners` (archived ones become `active = false`); stage picklist from `/crm/v3/pipelines/deals`. Map to the same `Snapshot` (record ID = `northwind_id` if set, else `HS-<id>`). `monitor run --source hubspot`, `make snapshot-hubspot`. Live scoring against the manifest is meaningful on the seeding day; after that, records age into new findings, which the report shows as findings outside the manifest. Mocked-transport tests only.
 

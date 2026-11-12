@@ -2,6 +2,16 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: When seeding HubSpot, shift only the dates checked against the as-of date
+
+**Decision:** This corrects the 2026-11-11 entry "Shift dates when seeding HubSpot and keep the original create date". Only open deals' `close_date` and `stage_entered_at` move forward by N days (N = seed day − 2026-06-30). Create times, closed deals' `close_date` and `closed_at` keep their generated values. Create times still go in `northwind_created_at`, and the live run's as-of date is the run date.
+
+**Context:** The original rule broke two checks. With a seeding day of 2026-11-13 (N = 136), shifting closed deals' close dates but not create dates makes all 5 D08 deals close after they were created, so they are missed. Shifting create dates as well moves 57 clean contacts with a blank source from late 2025 to after the 2026-01-01 attribution cutoff, so they become D22 false positives. Only D20 (open deal past its close date) and D21 (stale stage) compare a date with the as-of date.
+
+**Alternatives:** Shift everything and move the attribution cutoff by N for live runs, which makes a business rule depend on the seeding day; don't shift at all and run live checks as of 2026-06-30, which means the live data never ages.
+
+**Consequences:** A test runs all 18 checks on the seed tables for several seeding days and expects exactly the plantable records with no false positives. Seeded records keep historical create and close dates, so the portal looks like a CRM migrated from another system.
+
 ## 2026-11-12: Publish the offline demo report on GitHub Pages before milestone 7
 
 **Decision:** A separate workflow, `.github/workflows/pages.yml`, runs `make demo` on every push to `main` and publishes the day-2 report as the Pages site. The README links to it.
