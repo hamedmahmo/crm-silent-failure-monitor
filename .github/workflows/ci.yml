@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks scans history
+
+      - uses: astral-sh/setup-uv@v10.3.3 # upstream publishes no floating major tag
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12 and dev dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      - name: Generate demo data
+        run: make demo
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Pre-commit hooks (including gitleaks)
+        run: make hooks

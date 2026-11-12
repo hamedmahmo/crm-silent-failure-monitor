@@ -1,0 +1,32 @@
+[project]
+name = "portfolio-template"
+version = "0.1.0"
+description = "Template for small Python data and automation portfolio projects, with a synthetic Northwind Analytics dataset."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["generate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["data"]
+addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
