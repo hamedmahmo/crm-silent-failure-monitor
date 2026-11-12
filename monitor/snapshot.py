@@ -99,6 +99,29 @@ def connect(db_path: Path | str) -> duckdb.DuckDBPyConnection:
     for table in SCOPE_TABLES:
         columns = ", ".join(f"{name} VARCHAR" for name in COLUMNS[table])
         con.execute(f"CREATE TABLE IF NOT EXISTS snap_{table} (run_id INTEGER NOT NULL, {columns})")
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS findings (
+            run_id INTEGER NOT NULL,
+            check_id VARCHAR NOT NULL,
+            record_type VARCHAR NOT NULL,
+            record_id VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, check_id, record_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS check_runs (
+            run_id INTEGER NOT NULL,
+            check_id VARCHAR NOT NULL,
+            status VARCHAR NOT NULL,
+            error VARCHAR,
+            finding_count INTEGER NOT NULL,
+            PRIMARY KEY (run_id, check_id)
+        )
+        """
+    )
     return con
 
 
@@ -144,6 +167,19 @@ def store_snapshot(
         con.rollback()
         raise
     return run_id
+
+
+def record_ids_by_type(con: duckdb.DuckDBPyConnection, run_id: int) -> dict[str, set[str]]:
+    """Primary keys of every in-scope table in one run."""
+    return {
+        table: {
+            row[0]
+            for row in con.execute(
+                f"SELECT {PRIMARY_KEYS[table]} FROM snap_{table} WHERE run_id = ?", [run_id]
+            ).fetchall()
+        }
+        for table in SCOPE_TABLES
+    }
 
 
 def use_run(con: duckdb.DuckDBPyConnection, run_id: int, params: Params) -> None:

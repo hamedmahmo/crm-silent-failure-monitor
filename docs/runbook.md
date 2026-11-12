@@ -51,6 +51,28 @@ Output files: `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv`, `usage
 
 All dates are anchored to `AS_OF` = 2026-06-30, not today's date, so output doesn't change over time.
 
+## Checks
+
+Checks live in `checks/companies.yaml`, `checks/contacts.yaml` and `checks/deals.yaml`. Business rules shared by the checks (attribution cutoff, stale-stage days, top list price, deal stage picklist) are in `checks/params.yaml`.
+
+To add a check, add one entry to the right YAML file:
+
+| Field | Rule |
+|---|---|
+| `id` | lower_snake_case, unique across all files |
+| `title` | short name shown in the report |
+| `severity` | `critical`, `high`, `medium` or `low` |
+| `owner` | the team that fixes it, e.g. `revops` (never a person) |
+| `record_type` | `owners`, `companies`, `contacts` or `deals` |
+| `defects` | defect IDs from `data/DEFECTS.md` that the check targets, e.g. `[D19]` |
+| `why_it_matters` | one line, at most 160 characters, on the business impact |
+| `sample_columns` | columns of `record_type` shown in the report's sample table |
+| `sql` | a query returning one column, `record_id` |
+
+The SQL can use the views `owners`, `companies`, `contacts`, `deals` (the current run, every column as text, blanks as NULL), `run_context` (`as_of`, `source_required_from`, `stale_stage_days`, `max_deal_amount`) and `deal_stages` (`stage`, `is_open`, `is_closed`). Cast where needed, e.g. `TRY_CAST(amount AS DOUBLE)` or `TRY_CAST(left(created_at, 10) AS DATE)`.
+
+Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid fields, and runs each check against generated data with and without defects.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests, on Ubuntu: `uv sync --locked`, `make lint`, `make test`, `make demo`, `make hooks`.

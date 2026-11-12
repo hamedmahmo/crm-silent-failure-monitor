@@ -1,0 +1,36 @@
+# Checks on companies. Each SQL query runs against the current run's views and returns the IDs
+# of offending records in one column, record_id. Field reference: docs/plan.md and
+# data/DEFECTS.md.
+
+- id: company_missing_firmographics
+  title: Company missing industry or country
+  severity: medium
+  owner: revops
+  record_type: companies
+  defects: [D04]
+  why_it_matters: Companies without an industry or country fall out of segment and territory reports.
+  sample_columns: [company_id, name, industry, country, owner_id]
+  sql: |
+    SELECT company_id AS record_id
+    FROM companies
+    WHERE industry IS NULL OR country IS NULL
+
+- id: company_duplicate_domain
+  title: Two companies share the same domain
+  severity: high
+  owner: revops
+  record_type: companies
+  defects: [D18]
+  why_it_matters: Duplicate companies split one account's deals and contacts, so account revenue and counts are wrong.
+  sample_columns: [company_id, name, domain, owner_id, created_at]
+  # The lowest company_id in each domain is treated as the original; the rest are flagged.
+  sql: |
+    SELECT company_id AS record_id
+    FROM (
+      SELECT
+        company_id,
+        row_number() OVER (PARTITION BY lower(domain) ORDER BY company_id) AS position
+      FROM companies
+      WHERE domain IS NOT NULL
+    )
+    WHERE position > 1

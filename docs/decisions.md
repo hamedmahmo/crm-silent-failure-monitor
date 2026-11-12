@@ -2,6 +2,36 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-11: A failing check is recorded as an error, not skipped
+
+**Decision:** Each check runs on its own. A check whose SQL fails, or that returns anything other than one `record_id` column, is stored in `check_runs` with status `error` and the message; the other checks still run.
+
+**Context:** The point of the project is catching failures that make no noise. If a broken check just returned nothing, the report would show the problem as fixed.
+
+**Alternatives:** Stop the whole run on the first error; log and skip.
+
+**Consequences:** The report has to show errored checks first (milestone 3), and `monitor run` will exit with status 1 when any check errors so the scheduled job fails visibly.
+
+## 2026-11-11: Score each check only against planted records of its own record type
+
+**Decision:** A check declares one `record_type`. Its planted set is the manifest `record_ids` of its defects that exist in that table. D17 (no owner, on contacts and deals) is covered by two checks, `contact_no_owner` and `deal_no_owner`. Overall totals count a planted record as caught if any check targeting its defect found it.
+
+**Context:** The manifest lists D17's 4 contact IDs and 4 deal IDs together. Scored against the whole list, each half of a split check would show 4 false misses. One check returning two record types would make the report's sample tables and `sample_columns` ambiguous.
+
+**Alternatives:** One D17 check with a `UNION` of contacts and deals; a record-type field on each manifest ID (would mean changing the template generator).
+
+**Consequences:** 18 checks cover 17 in-scope defects. Scope is derived from each defect's `record_types`, so D05 (companies and usage events) and D15 (tickets and contacts) are out of scope along with the usage-event and ticket defects.
+
+## 2026-11-11: Checks are SQL queries in YAML files
+
+**Decision:** Each check is one YAML entry in `checks/*.yaml` with `id`, `title`, `severity`, `owner`, `record_type`, `defects`, `why_it_matters`, `sample_columns` and `sql`. The loader rejects missing or unknown fields, so a typo fails loudly instead of being ignored.
+
+**Context:** RevOps analysts who know SQL should be able to add a check without touching Python. The same SQL can be pasted into a DuckDB session to debug it.
+
+**Alternatives:** Python functions per check (the approach in `tests/test_generate.py`); a rules DSL such as Great Expectations or Soda.
+
+**Consequences:** The SQL is tested against the generator: every check must find exactly its planted records and nothing in clean data. The severities and owning teams (`finance`, `revops`, `sales-ops`, `marketing-ops`) are a first proposal and can be changed in the YAML without code changes.
+
 ## 2026-11-11: Store snapshot values as text, with only empty strings as NULL
 
 **Decision:** Every snapshot column is stored as VARCHAR exactly as read. An empty string becomes NULL; nothing else is trimmed or converted. Checks cast to numbers and dates themselves (`TRY_CAST(amount AS DOUBLE)`, `CAST(left(created_at, 10) AS DATE)`).
