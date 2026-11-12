@@ -79,6 +79,19 @@ def read_csv_snapshot(folder: Path) -> Snapshot:
     return Snapshot("csv", str(folder), date.fromisoformat(metadata["as_of"]), tables)
 
 
+def write_csv_snapshot(snapshot: Snapshot, folder: Path) -> None:
+    """Write a snapshot in the generator's format, so read_csv_snapshot can load it again."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    for table in SCOPE_TABLES:
+        with (folder / f"{table}.csv").open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=COLUMNS[table], lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(snapshot.tables[table])
+    metadata = {"as_of": snapshot.as_of.isoformat(), "source": snapshot.source}
+    (folder / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
+
 def connect(db_path: Path | str) -> duckdb.DuckDBPyConnection:
     """Open (or create) the monitor database and make sure the tables exist."""
     if str(db_path) != ":memory:":

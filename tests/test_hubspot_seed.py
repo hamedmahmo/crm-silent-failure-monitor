@@ -120,9 +120,12 @@ def test_shift_is_days_since_the_generator_as_of(plan):
 def test_only_open_deal_close_and_stage_entered_dates_move(generated, plan):
     tables, _ = generated
     original = {d["deal_id"]: d for d in tables["deals"]}
+    skipped_contacts = set(plan.skipped["contacts"])
     n = timedelta(days=plan.shift_days)
     for deal in plan.tables["deals"]:
-        before = original[deal["deal_id"]]
+        before = dict(original[deal["deal_id"]])
+        if before["primary_contact_id"] in skipped_contacts:  # blanked, tested separately
+            before["primary_contact_id"] = ""
         if before["stage"] in OPEN:
             assert (
                 date.fromisoformat(deal["close_date"])
@@ -320,7 +323,25 @@ def test_associations(generated, plan):
         if d["primary_contact_id"] and d["primary_contact_id"] not in skipped_contacts
     ]
     assert len(by_kind[("deals", "contacts")]) == len(expected_deal_contacts)
-    assert sum(1 for d in deals if d["primary_contact_id"] in skipped_contacts) == 1
+    original = generated[0]["deals"]
+    assert sum(1 for d in original if d["primary_contact_id"] in skipped_contacts) == 1
+
+
+def test_references_to_skipped_records_are_blank_in_the_seed_tables(generated, plan):
+    """The answer key describes what HubSpot holds: a deal whose contact was skipped has none."""
+    skipped_contacts = set(plan.skipped["contacts"])
+    [lost] = [d for d in generated[0]["deals"] if d["primary_contact_id"] in skipped_contacts]
+    seeded = next(d for d in plan.tables["deals"] if d["deal_id"] == lost["deal_id"])
+    assert seeded["primary_contact_id"] == ""
+    seeded_ids = {
+        t: {r[k] for r in plan.tables[t]}
+        for t, k in (("companies", "company_id"), ("contacts", "contact_id"))
+    }
+    for c in plan.tables["contacts"]:
+        assert c["company_id"] in seeded_ids["companies"] | {""}
+    for d in plan.tables["deals"]:
+        assert d["company_id"] in seeded_ids["companies"] | {""}
+        assert d["primary_contact_id"] in seeded_ids["contacts"] | {""}
 
 
 # ---------------------------------------------------------------- industry and owner

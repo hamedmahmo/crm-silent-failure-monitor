@@ -12,7 +12,7 @@ import duckdb
 from monitor.checks import Check, CheckResult, run_checks
 from monitor.params import Params
 from monitor.report import Report, build_report, render_html, render_markdown
-from monitor.snapshot import read_csv_snapshot, store_snapshot
+from monitor.snapshot import Snapshot, read_csv_snapshot, store_snapshot
 
 MANIFEST_NAME = "defects_manifest.json"
 
@@ -29,6 +29,29 @@ class RunOutcome:
         return [r for r in self.results if r.status == "error"]
 
 
+def run_snapshot(
+    con: duckdb.DuckDBPyConnection,
+    snapshot: Snapshot,
+    label: str,
+    checks: list[Check],
+    params: Params,
+    manifest: dict | None = None,
+    loaded_at: datetime | None = None,
+) -> RunOutcome:
+    """Store a snapshot as a new run, run the checks and build the report.
+
+    With a manifest (an answer key), the report is scored against it.
+    """
+    run_id = store_snapshot(con, snapshot, label, loaded_at)
+    results = run_checks(con, run_id, checks, params)
+    return RunOutcome(run_id, label, build_report(con, run_id, checks, manifest), results)
+
+
+def read_manifest(path: Path) -> dict | None:
+    path = Path(path)
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
 def run_once(
     con: duckdb.DuckDBPyConnection,
     folder: Path,
@@ -37,15 +60,10 @@ def run_once(
     params: Params,
     loaded_at: datetime | None = None,
 ) -> RunOutcome:
-    """Load a CSV snapshot folder as a new run, run the checks and build the report."""
+    """Run a CSV snapshot folder, scored against its defects_manifest.json if it has one."""
     folder = Path(folder)
-    run_id = store_snapshot(con, read_csv_snapshot(folder), label, loaded_at)
-    results = run_checks(con, run_id, checks, params)
-    manifest_path = folder / MANIFEST_NAME
-    manifest = (
-        json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else None
-    )
-    return RunOutcome(run_id, label, build_report(con, run_id, checks, manifest), results)
+    manifest = read_manifest(folder / MANIFEST_NAME)
+    return run_snapshot(con, read_csv_snapshot(folder), label, checks, params, manifest, loaded_at)
 
 
 def write_reports(report: Report, reports_dir: Path, label: str) -> list[Path]:
@@ -62,7 +80,7 @@ def write_reports(report: Report, reports_dir: Path, label: str) -> list[Path]:
     return written
 
 
-def summary_lines(outcome: RunOutcome) -> list[str]:
+def summary_lines(outcome: RunOutcome, unscored: str = "no defects_manifest.json") -> list[str]:
     r = outcome.report
     open_checks = sum(1 for c in r.cards if c.status != "resolved")
     persisting = r.open_issues - r.new_issues
@@ -72,7 +90,7 @@ def summary_lines(outcome: RunOutcome) -> list[str]:
     )
     if r.previous_label is None:
         line += " (no previous run)"
-    lines = [line, f"  {r.score.line}" if r.score else "  not scored (no defects_manifest.json)"]
+    lines = [line, f"  {r.score.line}" if r.score else f"  not scored ({unscored})"]
     for result in outcome.errors:
         lines.append(f"  check error: {result.check.id}: {result.error}")
     return lines

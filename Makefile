@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup test lint format demo hooks hubspot-check seed-hubspot reset-hubspot
+.PHONY: help setup test lint format demo hooks hubspot-check seed-hubspot reset-hubspot snapshot-hubspot
 
 help: ## List the available targets
 	uv run python scripts/make_help.py
@@ -33,3 +33,6 @@ seed-hubspot: ## Load Northwind day 1 into the HubSpot developer test account (i
 
 reset-hubspot: ## Dry run: count the records tagged northwind_id that a reset would archive
 	uv run python -m monitor hubspot reset
+
+snapshot-hubspot: ## Read-only: read the HubSpot test account, run the checks, score against the answer key
+	uv run python -m monitor run --source hubspot --manifest data/output/hubspot/defects_manifest.json --save-snapshot data/output/hubspot-live

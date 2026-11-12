@@ -178,6 +178,18 @@ def build_seed(
         company["domain"] = hubspot_domain(company["domain"])
     for contact in seeded["contacts"]:
         contact["email"] = hubspot_email(contact["email"])
+    # A reference to a skipped record can't become an association, so the answer key shows it
+    # blank, as HubSpot will (one deal whose primary contact is a skipped D01 duplicate).
+    kept_companies = {c["company_id"] for c in seeded["companies"]}
+    kept_contacts = {c["contact_id"] for c in seeded["contacts"]}
+    for contact in seeded["contacts"]:
+        if contact["company_id"] not in kept_companies:
+            contact["company_id"] = ""
+    for deal in seeded["deals"]:
+        if deal["company_id"] not in kept_companies:
+            deal["company_id"] = ""
+        if deal["primary_contact_id"] not in kept_contacts:
+            deal["primary_contact_id"] = ""
 
     in_scope = set(in_scope_defect_ids(manifest["defects"]))
     live_manifest = {
