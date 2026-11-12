@@ -169,6 +169,9 @@ class FakeHubSpot:
         object_type = rest[0]
         store = self.objects[object_type]
         if rest[1:] == ["batch", "upsert"]:
+            invalid = invalid_email(object_type, [i["properties"] for i in body["inputs"]])
+            if invalid:
+                return invalid
             results = []
             index = self.by_northwind_id(object_type)
             for item in body["inputs"]:
@@ -200,6 +203,9 @@ class FakeHubSpot:
         if rest[1:] == ["search"]:
             return self.search(object_type, body)
         if len(rest) == 1 and request.method == "POST":
+            invalid = invalid_email(object_type, [body["properties"]])
+            if invalid:
+                return invalid
             hs_id = self.new_id()
             store[hs_id] = {"hs_object_id": hs_id, **body["properties"]}
             self.after_create(object_type, store[hs_id], body["properties"])
@@ -245,6 +251,25 @@ class FakeHubSpot:
     def new_id(self) -> str:
         self._next_id += 1
         return str(self._next_id)
+
+
+def invalid_email(object_type: str, records: list[dict]) -> httpx.Response | None:
+    """HubSpot rejects contact emails on the reserved .example top-level domain with
+    400 INVALID_EMAIL (probe run, 2026-11-12)."""
+    if object_type != "contacts":
+        return None
+    for props in records:
+        email = props.get("email", "")
+        if email.lower().endswith(".example"):
+            return httpx.Response(
+                400,
+                json={
+                    "status": "error",
+                    "category": "VALIDATION_ERROR",
+                    "message": f"Email address {email} is invalid",
+                },
+            )
+    return None
 
 
 def ok(payload: object) -> httpx.Response:

@@ -57,6 +57,15 @@ def test_p3_detects_an_auto_created_company():
     assert not results["P3"].as_planned
 
 
+def test_probe_contacts_use_example_com_addresses():
+    fake = FakeHubSpot()
+    run(fake)
+    creates = [r for r in fake.sent("POST") if r.url.path == "/crm/objects/2026-09/contacts"]
+    emails = [json.loads(r.content)["properties"]["email"] for r in creates]
+    assert len(emails) == 2
+    assert all(e.endswith(".example.com") for e in emails)
+
+
 def test_p1_detects_a_rejected_deal():
     fake = FakeHubSpot()
     fake.script(

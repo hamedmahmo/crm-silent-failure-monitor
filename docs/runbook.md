@@ -163,6 +163,7 @@ Every command first reads `/account-info/2026-09/details` and stops unless `acco
 - Every record is upserted on the unique custom property `northwind_id`, so a second run on the same day creates nothing and sends identical payloads.
 - Dates: open deals' close date and stage-entered date move forward by the number of days between 2026-06-30 and the seed day; every other date keeps its generated value. Create times go in `northwind_created_at`.
 - Custom properties, in the `northwind` group: `northwind_id`, `northwind_created_at` (all three objects), `northwind_employee_band`, `northwind_plan_tier`, `northwind_churned_at` (companies), `northwind_source` (contacts), `northwind_stage_entered_at`, `northwind_closed_at` (deals).
+- Emails and domains: HubSpot rejects the `.example` top-level domain, so `name.example` is sent as `name.example.com` (also reserved). The seed output folder has the rewritten values.
 - Industry: the generator's labels map to HubSpot's `industry` options by label (`INDUSTRY_LABELS` in `monitor/hubspot/seed.py`). A label with no matching option stops the seed before any write.
 
 Post-seed checks (exit 1 if any fails): the number of records with `northwind_id` per object matches the plan, no company exists without `northwind_id`, and the 10 D16 contacts still have no lifecycle stage. Search results lag writes by a few seconds, so the counts are retried for up to 30 seconds.
@@ -199,6 +200,7 @@ Milestone 7 replaces the offline demo with the scheduled HubSpot run.
 | `... 401` or `... 403` from HubSpot | the key is revoked or missing a scope; compare its scopes with the setup list |
 | `the portal has 2 active owners; set HUBSPOT_OWNER_ID` | put the owner ID to use in `.env` (`/crm/owners` lists them) |
 | `HubSpot's industry options have no match for: ...` | update `INDUSTRY_LABELS` in `monitor/hubspot/seed.py` using `data/output/hubspot/industry_options.json` from the probe |
+| `400 VALIDATION_ERROR ... INVALID_EMAIL` | HubSpot rejects the address; emails sent to HubSpot must end in `.example.com`, not `.example` (see `hubspot_email` in `monitor/hubspot/seed.py`) |
 | post-seed check: companies without `northwind_id` | switch off "Create and associate companies with contacts", run `hubspot reset --yes`, archive the extra companies in HubSpot, and seed again |
 | post-seed check: D16 contact has a lifecycle stage | switch off the lifecycle stage automation, run `hubspot reset --yes`, then seed again (a second seed leaves blank fields out, so it can't clear a stage HubSpot filled in) |
 | The Pages URL shows the README instead of the report | set Pages Source to "GitHub Actions" in the repository settings, then re-run "Publish report" |

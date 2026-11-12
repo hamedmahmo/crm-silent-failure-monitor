@@ -17,8 +17,8 @@ from monitor.hubspot.properties import ensure_properties
 from monitor.hubspot.seed import SeedError, industry_map
 
 PROBE_WAIT = 10.0  # seconds for portal automation to run before reading back
-LIFECYCLE_DOMAIN = "probe-lifecycle.example"
-AUTOCREATE_DOMAIN = "probe-autocreate.example"
+LIFECYCLE_DOMAIN = "probe-lifecycle.example.com"
+AUTOCREATE_DOMAIN = "probe-autocreate.example.com"
 
 
 @dataclass(frozen=True)

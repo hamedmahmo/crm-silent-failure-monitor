@@ -17,6 +17,8 @@ from monitor.hubspot.seed import (
     SeedError,
     apply_seed,
     build_seed,
+    hubspot_domain,
+    hubspot_email,
     industry_map,
     resolve_owner,
     skipped_defect_ids,
@@ -132,9 +134,18 @@ def test_only_open_deal_close_and_stage_entered_dates_move(generated, plan):
         else:
             unchanged = set(deal)
         assert {k: deal[k] for k in unchanged} == {k: before[k] for k in unchanged}
-    for table in ("owners", "companies", "contacts"):
-        kept = {r[PRIMARY_KEYS[table]] for r in plan.tables[table]}
-        assert plan.tables[table] == [r for r in tables[table] if r[PRIMARY_KEYS[table]] in kept]
+    # Company domains and contact emails are rewritten separately (.example -> .example.com).
+    rewritten = {"owners": set(), "companies": {"domain"}, "contacts": {"email"}}
+    for table, columns in rewritten.items():
+        key = PRIMARY_KEYS[table]
+        kept = {r[key] for r in plan.tables[table]}
+
+        def other_columns(rows, columns=columns):
+            return [{k: v for k, v in r.items() if k not in columns} for r in rows]
+
+        assert other_columns(plan.tables[table]) == other_columns(
+            [r for r in tables[table] if r[key] in kept]
+        )
 
 
 def test_timestamps_keep_the_generator_format(plan):
@@ -194,7 +205,7 @@ def test_company_properties(plan):
     company = next(i for i in plan.inputs["companies"] if i["id"] == "COMP-0001")
     assert company["properties"] == {
         "name": "Quartz Stone Systems",
-        "domain": "quartzstone.example",
+        "domain": "quartzstone.example.com",
         "industry": "FINANCIAL_SERVICES",
         "country": "FR",
         "northwind_employee_band": "1-10",
@@ -209,7 +220,7 @@ def test_contact_properties(plan):
     assert contact["properties"] == {
         "firstname": "Shay",
         "lastname": "Millbrook",
-        "email": "shay.millbrook@quartzstone.example",
+        "email": "shay.millbrook@quartzstone.example.com",
         "jobtitle": "VP Sales",
         "lifecyclestage": "lead",
         "hubspot_owner_id": OWNER,
@@ -232,6 +243,40 @@ def test_deal_properties(plan):
         "northwind_created_at": "2024-11-12T06:08:24Z",
         "northwind_stage_entered_at": row["stage_entered_at"],
     }
+
+
+def test_hubspot_domain_appends_com_to_the_example_tld():
+    assert hubspot_domain("quartzstone.example") == "quartzstone.example.com"
+    assert hubspot_domain("QuartzStone.Example") == "QuartzStone.Example.com"
+    assert hubspot_domain("quartzstone.example.com") == "quartzstone.example.com"
+    assert hubspot_domain("") == ""
+
+
+def test_hubspot_email_rewrites_only_the_domain():
+    assert hubspot_email("a.b@quartzstone.example") == "a.b@quartzstone.example.com"
+    assert hubspot_email("a.b@quartzstone.example.com") == "a.b@quartzstone.example.com"
+    assert hubspot_email("") == ""
+
+
+def test_every_seeded_email_and_domain_is_under_example_com(plan):
+    domains = [c["domain"] for c in plan.tables["companies"] if c["domain"]]
+    emails = [c["email"] for c in plan.tables["contacts"] if c["email"]]
+    assert domains and emails
+    assert all(d.lower().endswith(".example.com") for d in domains)
+    assert all(e.lower().endswith(".example.com") for e in emails)
+    sent = [i["properties"].get("email", "") for i in plan.inputs["contacts"]]
+    sent += [i["properties"].get("domain", "") for i in plan.inputs["companies"]]
+    assert not [v for v in sent if v.lower().endswith(".example")]
+
+
+def test_domain_rewrite_keeps_duplicate_domains_and_maps_each_email(generated, plan):
+    tables, _ = generated
+    before = {c["company_id"]: c["domain"].lower() for c in tables["companies"]}
+    after = {c["company_id"]: c["domain"].lower() for c in plan.tables["companies"]}
+    assert len(set(after.values())) == len({before[k] for k in after})
+    emails = {c["contact_id"]: c["email"] for c in tables["contacts"]}
+    for c in plan.tables["contacts"]:
+        assert c["email"] == hubspot_email(emails[c["contact_id"]])
 
 
 def test_deal_without_company_gets_a_plain_name(generated, plan):

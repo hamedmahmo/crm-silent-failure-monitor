@@ -280,7 +280,7 @@ Each probe creates records tagged `northwind_id = PROBE-xx`, reads them back, an
 |---|---|---|
 | P1 | A deal created at `closedwon` with a `closedate` 30 days before today: accepted, and is `closedate` kept? | every clean closed deal, D08 |
 | P2 | A contact created without `lifecyclestage`, then associated with a deal: still blank? | D16, settings |
-| P3 | A contact with an email at a new `.example` domain: was a company created? | D04, settings |
+| P3 | A contact with an email at a new `.example.com` domain: was a company created? (The first run used `.example`, which HubSpot rejects; see decisions, 2026-11-12.) | D04, settings |
 | P4 | Is `hs_analytics_source` read-only (`readOnlyValue`)? | `northwind_source` |
 | P5 | The `industry` option list | the industry map |
 

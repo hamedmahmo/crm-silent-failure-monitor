@@ -2,6 +2,16 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Seed HubSpot with `.example.com` emails and domains
+
+**Decision:** When seeding HubSpot, every company domain and contact email that ends in `.example` gets `.com` appended: `quartzstone.example` becomes `quartzstone.example.com`. The rewrite happens in `build_seed` (`hubspot_domain` and `hubspot_email` in `monitor/hubspot/seed.py`), so the seed output folder holds the same values as the portal. The generator, the CSV files and `make demo` keep `.example`. The probe contacts use `probe-lifecycle.example.com` and `probe-autocreate.example.com`.
+
+**Context:** The first probe run (2026-11-12) showed that HubSpot rejects contact emails on the `.example` top-level domain with `400 INVALID_EMAIL`, so P2 and P3 could not run and all 1,031 seeded contacts would have failed. `example.com` is also reserved (RFC 2606, held by IANA), so its subdomains can't reach a real inbox or match a real company. Appending `.com` keeps each company's domain distinct, keeps contact emails on their company's domain, and keeps the 3 D18 pairs sharing a domain.
+
+**Alternatives:** Leave email off HubSpot contacts (less realistic, and says nothing about company domains). Put every contact on `@example.com` with a unique local part (contacts no longer share their company's domain).
+
+**Consequences:** The data rule in CLAUDE.md has one exception: data sent to HubSpot uses `.example.com`. Milestone 5 compares HubSpot records with the answer key by `northwind_id`, not by email or domain, so the rewrite doesn't affect scoring. Whether HubSpot accepts `.example.com` company domains is checked by the seed itself; the probes only create contacts.
+
 ## 2026-11-12: Use HubSpot's date-based API version 2026-09
 
 **Decision:** Every HubSpot request uses the `2026-09` paths (`/crm/objects/2026-09/...`, `/crm/properties/2026-09/...`, `/crm/associations/2026-09/...`, `/account-info/2026-09/details`, `/crm/owners/2026-09`). The version is one constant, `API_VERSION` in `monitor/hubspot/client.py`.

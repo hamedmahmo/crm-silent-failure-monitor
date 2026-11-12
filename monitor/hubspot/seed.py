@@ -125,6 +125,17 @@ def _shift_ts(value: str, days: int) -> str:
     return (datetime.strptime(value, TS_FORMAT) + timedelta(days=days)).strftime(TS_FORMAT)
 
 
+def hubspot_domain(domain: str) -> str:
+    """HubSpot rejects the reserved `.example` top-level domain, so `name.example` becomes
+    `name.example.com`, which is also reserved (RFC 2606) and keeps each domain distinct."""
+    return f"{domain}.com" if domain.lower().endswith(".example") else domain
+
+
+def hubspot_email(email: str) -> str:
+    local, at, domain = email.rpartition("@")
+    return f"{local}@{hubspot_domain(domain)}" if at else email
+
+
 def _props(pairs: list[tuple[str, str]]) -> dict[str, str]:
     """Leave blank values out, so a blank field stays empty in HubSpot."""
     return {name: value for name, value in pairs if value}
@@ -163,6 +174,10 @@ def build_seed(
                 deal["close_date"] = _shift_day(deal["close_date"], shift)
             if deal["stage_entered_at"]:
                 deal["stage_entered_at"] = _shift_ts(deal["stage_entered_at"], shift)
+    for company in seeded["companies"]:
+        company["domain"] = hubspot_domain(company["domain"])
+    for contact in seeded["contacts"]:
+        contact["email"] = hubspot_email(contact["email"])
 
     in_scope = set(in_scope_defect_ids(manifest["defects"]))
     live_manifest = {
