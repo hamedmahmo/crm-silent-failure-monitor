@@ -14,7 +14,7 @@ How to set up, run and troubleshoot this project. Keep it current: `/runbook` in
 make setup
 ```
 
-This runs `uv sync` (creates `.venv` with Python 3.12 and installs pytest, ruff and pre-commit) and `uv run pre-commit install` (adds the git hook).
+This runs `uv sync` (creates `.venv` with Python 3.12, installs the runtime dependencies duckdb and pyyaml, and the dev tools pytest, ruff and pre-commit) and `uv run pre-commit install` (adds the git hook).
 
 Check the interpreter: `uv run python --version` should print `Python 3.12.x`.
 

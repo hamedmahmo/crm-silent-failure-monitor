@@ -2,6 +2,26 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-11: Store snapshot values as text, with only empty strings as NULL
+
+**Decision:** Every snapshot column is stored as VARCHAR exactly as read. An empty string becomes NULL; nothing else is trimmed or converted. Checks cast to numbers and dates themselves (`TRY_CAST(amount AS DOUBLE)`, `CAST(left(created_at, 10) AS DATE)`).
+
+**Context:** Several defects are formatting problems: `closedwon ` with a trailing space (D09), an email with a trailing space (D03), and an amount of `0` versus a blank (D06). A typed load would trim, convert or reject exactly the values the monitor needs to see. HubSpot's API also returns property values as strings, so the same rule fits the live source in milestone 5.
+
+**Alternatives:** DuckDB's `read_csv` with type detection; typed tables with a cleaning step before the checks.
+
+**Consequences:** Check SQL is a little longer because of the casts. Rows are inserted from Python with parameterized multi-row `VALUES` statements (250 rows each) rather than `read_csv`, so the CSV sniffer can't change values. Switching from `executemany` to chunked inserts cut `tests/test_snapshot.py` from 13.7 s to 7.9 s.
+
+## 2026-11-11: DuckDB file for snapshots and findings
+
+**Decision:** Each run's snapshot, findings and check results go into one DuckDB file (`data/output/monitor.duckdb` by default). Every snapshot table has a `run_id`, and `use_run()` creates temp views (`owners`, `companies`, `contacts`, `deals`, `run_context`, `deal_stages`) so check SQL never mentions run IDs.
+
+**Context:** Checks are SQL in YAML, change detection compares runs, and the scheduled job (milestone 7) needs to carry the previous run forward. A single embedded file covers all three without a server, and a check's SQL can be pasted into the DuckDB CLI to debug it.
+
+**Alternatives:** SQLite (weaker SQL: no `EXCLUDE`, `TRY_CAST` or regex functions by default); pandas in memory (checks would be Python, not SQL, and nothing persists between runs).
+
+**Consequences:** The file grows by one full snapshot per run, a few thousand rows for Northwind. A pruning option may be needed once the job runs daily against a real portal.
+
 ## 2026-11-11: Flag each defect as plantable in HubSpot or not
 
 **Decision:** Every defect in `data/DEFECTS.md` and the `DEFECTS` registry has a `hubspot_plantable` yes/no flag and a fixed record count.

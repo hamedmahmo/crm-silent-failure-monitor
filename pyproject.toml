@@ -1,10 +1,13 @@
 [project]
-name = "portfolio-template"
+name = "crm-silent-failure-monitor"
 version = "0.1.0"
-description = "Template for small Python data and automation portfolio projects, with a synthetic Northwind Analytics dataset."
+description = "Snapshots CRM data into DuckDB, runs SQL checks for data problems that break reporting without errors, and reports what changed since the last run."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "duckdb>=2.0.0",
+    "pyyaml>=6.0.3",
+]
 
 [tool.uv]
 package = false
@@ -17,11 +20,11 @@ line-length = 100
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["generate"]
+known-first-party = ["generate", "simulate_day2", "monitor"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["data"]
+pythonpath = ["data", "."]
 addopts = "-q"
 
 [dependency-groups]
