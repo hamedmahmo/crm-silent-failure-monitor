@@ -199,7 +199,7 @@ Milestone 7 replaces the offline demo with the scheduled HubSpot run.
 | `... different portal than HUBSPOT_PORTAL_ID` | `HUBSPOT_PORTAL_ID` doesn't match the token's portal; fix whichever is wrong |
 | `... 401` or `... 403` from HubSpot | the key is revoked or missing a scope; compare its scopes with the setup list |
 | `the portal has 2 active owners; set HUBSPOT_OWNER_ID` | put the owner ID to use in `.env` (`/crm/owners` lists them) |
-| `HubSpot's industry options have no match for: ...` | update `INDUSTRY_LABELS` in `monitor/hubspot/seed.py` using `data/output/hubspot/industry_options.json` from the probe |
+| `HubSpot's industry options have no match for: ...` | update `INDUSTRY_LABELS` in `monitor/hubspot/seed.py` using `data/output/hubspot/industry_options.json` from the probe, and copy the matching options into `tests/fixtures/hubspot_industry_options.json` |
 | `400 VALIDATION_ERROR ... INVALID_EMAIL` | HubSpot rejects the address; emails sent to HubSpot must end in `.example.com`, not `.example` (see `hubspot_email` in `monitor/hubspot/seed.py`) |
 | post-seed check: companies without `northwind_id` | switch off "Create and associate companies with contacts", run `hubspot reset --yes`, archive the extra companies in HubSpot, and seed again |
 | post-seed check: D16 contact has a lifecycle stage | switch off the lifecycle stage automation, run `hubspot reset --yes`, then seed again (a second seed leaves blank fields out, so it can't clear a stage HubSpot filled in) |

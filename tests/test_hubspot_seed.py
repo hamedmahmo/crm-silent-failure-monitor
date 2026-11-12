@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from hubspot_fake import INDUSTRY_OPTIONS, FakeHubSpot
@@ -327,6 +328,19 @@ def test_associations(generated, plan):
 
 def test_industry_map_covers_every_generator_industry():
     assert set(INDUSTRIES) == set(generate.INDUSTRIES)
+
+
+def test_industry_map_matches_the_live_portal_options():
+    """tests/fixtures/hubspot_industry_options.json holds the 12 options the map uses, copied
+    from the portal by probe P5 on 2026-11-12 (the other 136 options are left out)."""
+    live = json.loads(
+        (Path(__file__).parent / "fixtures" / "hubspot_industry_options.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert len(live) == 12
+    assert not any(o["hidden"] for o in live)
+    assert industry_map(live) == INDUSTRIES
 
 
 def test_industry_map_names_missing_labels():

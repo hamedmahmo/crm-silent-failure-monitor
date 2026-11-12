@@ -19,7 +19,7 @@ Reference values used below: `AS_OF` = 2026-06-30, source cutoff = 2026-01-01, s
 | D05 | Churned company still emits usage events after `churned_at` | companies, usage_events | 3 companies (4 events each) | no | Usage events are not HubSpot records |
 | D06 | `closedwon` deal with blank or zero `amount` | deals | 5 deals | yes | |
 | D07 | Deal `amount` 100x too large (cents written to a dollars field) | deals | 4 deals | yes | |
-| D08 | Closed deal with `close_date` before `created_at` | deals | 5 deals | yes | Close date set before the real create time; to confirm in a HubSpot sandbox |
+| D08 | Closed deal with `close_date` before `created_at` | deals | 5 deals | yes | Close date set before the real create time; HubSpot accepts it (probe P1, 2026-11-12) |
 | D09 | Deal `stage` outside the picklist (`Closed Won`, `won`, `closedwon ` with trailing space) | deals | 6 deals | no | HubSpot rejects invalid stages |
 | D10 | Deal owner is inactive or missing from `owners` | deals | 5 deals | no | HubSpot validates owner IDs; to confirm in a HubSpot sandbox |
 | D11 | Duplicate usage event (same `event_id` replayed) | usage_events | 10 events | no | Usage events are not HubSpot records |
@@ -77,6 +77,7 @@ A monitor that flags every blank field will fail the clean-data tests.
 
 ## Notes for planting in HubSpot
 
-- **D08, D10, D14**: these flags are a judgement beyond the five rejection rules above. Check them in a sandbox portal before relying on them.
+- **D10, D14**: these flags are a judgement beyond the five rejection rules above. Check them in a sandbox portal before relying on them.
+- **D08**: confirmed on 2026-11-12 by probe P1 (`docs/hubspot-verification.md`). HubSpot accepted a `closedwon` deal created through the API with a `closedate` 30 days before its create time, and kept that date.
 - **D21**: HubSpot's own `hs_date_entered_<stage>` properties are read-only. To plant this defect in a live portal, create a custom date property for `stage_entered_at`, or leave a deal in one stage until it is more than 60 days old.
 - Created dates can't be backdated through the API, so any rule that depends on `created_at` (D08, D22) uses the real create time in a portal. D22 still works because records created today are after the 2026-01-01 cutoff.

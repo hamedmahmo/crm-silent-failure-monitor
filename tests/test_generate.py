@@ -480,10 +480,11 @@ def parse_defects_md() -> dict[str, dict[str, object]]:
         if not re.match(r"^\|\s*D\d{2}\s*\|", line):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        defect_id, _what, _types, count, plantable = cells[:5]
+        defect_id, _what, _types, count, plantable, notes = cells[:6]
         rows[defect_id] = {
             "count": int(re.match(r"\d+", count).group()),
             "hubspot_plantable": plantable.lower().startswith("yes"),
+            "to_confirm": "to confirm" in notes.lower(),
         }
     return rows
 
@@ -494,6 +495,17 @@ def test_defects_md_matches_registry() -> None:
     for defect in generate.DEFECTS:
         assert documented[defect.id]["count"] == defect.count, defect.id
         assert documented[defect.id]["hubspot_plantable"] == defect.hubspot_plantable, defect.id
+        assert documented[defect.id]["to_confirm"] == ("to confirm" in defect.hubspot_note), (
+            defect.id
+        )
+
+
+def test_d08_is_confirmed_by_probe_p1_and_d10_d14_stay_unconfirmed() -> None:
+    notes = {d.id: d.hubspot_note for d in generate.DEFECTS}
+    assert "to confirm" not in notes["D08"]
+    assert "P1" in notes["D08"]
+    assert "to confirm" in notes["D10"]
+    assert "to confirm" in notes["D14"]
 
 
 # ---------------------------------------------------------------- CLI

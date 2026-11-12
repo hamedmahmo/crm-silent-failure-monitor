@@ -170,7 +170,7 @@ A short log of choices someone might later ask "why?" about. Newest first. Copy 
 
 **Alternatives:** One list for CSV only; a separate HubSpot list.
 
-**Consequences:** Tests check that the doc and the registry agree. The flags for D08, D10 and D14 are a judgement and still need checking in a sandbox portal. D21 needs a custom `stage_entered_at` property in HubSpot.
+**Consequences:** Tests check that the doc and the registry agree. The flags for D08, D10 and D14 are a judgement and still need checking in a sandbox portal. (Update 2026-11-12: probe P1 confirmed D08; D10 and D14 are still unchecked.) D21 needs a custom `stage_entered_at` property in HubSpot.
 
 ## 2026-11-11: Synthetic emails and domains use `.example`
 
