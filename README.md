@@ -4,7 +4,7 @@ A job that snapshots CRM data, runs SQL checks for records that break pipeline a
 
 **Latest report:** https://hamedmahmo.github.io/crm-silent-failure-monitor/ (the offline demo, rebuilt on every push to `main`).
 
-Status: milestones 1-3 are built and run offline on synthetic data. Milestone 4 seeded a HubSpot developer test account on 2026-11-12: 203 companies, 1,031 contacts and 570 deals, with 75 planted records in the 12 defects HubSpot accepts. Reading HubSpot back, the digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
+Status: milestones 1-3 are built and run offline on synthetic data. Milestone 4 seeded a HubSpot developer test account on 2026-11-12: 203 companies, 1,031 contacts and 570 deals, with 75 planted records in the 12 defects HubSpot accepts. Milestone 5, which reads the test account back and runs the checks on it, is built and tested against a mocked HubSpot API but hasn't been run against the portal yet. The digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
 
 ## Demo
 
@@ -130,10 +130,10 @@ Design decisions and their reasons are logged in [docs/decisions.md](docs/decisi
 
 ## Limitations
 
-- The monitor still reads only the offline CSV files. The HubSpot test account is seeded (milestone 4), but reading it back into a snapshot, the digest and the scheduled run (milestones 5-7) are not built.
+- Reading the HubSpot test account (milestone 5) has only run against a mocked API so far; the digest and the scheduled run (milestones 6-7) are not built.
 - Data sent to HubSpot uses `.example.com` emails and domains instead of `.example`, because HubSpot rejects the `.example` top-level domain.
 - The checks are exact rules for the planted defects. Duplicate detection only catches emails that differ by letter case or surrounding spaces, and companies with the same domain; it doesn't do fuzzy name matching.
-- The stale-stage check (D21) needs a `stage_entered_at` value. HubSpot doesn't have one for deals, so the live version needs a custom property.
+- The stale-stage check (D21) needs a `stage_entered_at` value. HubSpot's own stage-entry properties are read-only, so seeded deals carry it in a custom property, `northwind_stage_entered_at`. Deals added by hand in HubSpot don't have it, so D21 can't flag them.
 - The database keeps every snapshot and has no pruning yet.
 - The status filter works on whole checks: "Resolved" shows only checks with no open findings left. Partly resolved checks show their resolved count on the card.
 - Scoring is only meaningful where a defect manifest exists, which is the synthetic data. A real portal has no answer key.

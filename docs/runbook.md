@@ -33,6 +33,7 @@ The first commit, or the first `make hooks`, builds the gitleaks hook from sourc
 | `make hubspot-check` | read-only check of the HubSpot developer test account (see below) |
 | `make seed-hubspot` | load Northwind day 1 into the test account |
 | `make reset-hubspot` | dry run of removing the seeded records |
+| `make snapshot-hubspot` | read-only: read the test account, run the checks, score against the answer key |
 
 ## Offline demo
 
@@ -68,11 +69,12 @@ uv run python -m monitor run --help
 
 | Option | Default | Notes |
 |---|---|---|
-| `--source` | `csv` | only `csv` until the HubSpot source exists (milestone 5) |
-| `--path` | required | folder with `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv`, `metadata.json` |
-| `--db` | `data/output/monitor.duckdb` | runs accumulate here; each run is compared with the one before |
-| `--label` | folder name | used in the report and its file name |
-| `--reports` | `reports` | writes `<label>.html`, `<label>.md`, `latest.html`, `latest.md` |
+| `--source` | `csv` | `csv` reads a folder; `hubspot` reads the developer test account (see "Reading the test account") |
+| `--path` | required for `csv` | folder with `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv`, `metadata.json` |
+| `--db` | `data/output/monitor.duckdb` (`hubspot`: `data/output/hubspot-live.duckdb`) | runs accumulate here; each run is compared with the one before |
+| `--label` | folder name (`hubspot`: `hubspot-<as-of>`) | used in the report and its file name |
+| `--reports` | `reports` (`hubspot`: `reports/hubspot`) | writes `<label>.html`, `<label>.md`, `latest.html`, `latest.md` |
+| `--as-of`, `--manifest`, `--save-snapshot` | | `hubspot` only; refused with `csv` |
 | `--checks` | `checks` | folder of check YAML files |
 | `--fresh` | off | delete the database first |
 
@@ -124,7 +126,7 @@ The SQL can use the views `owners`, `companies`, `contacts`, `deals` (the curren
 
 Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid fields, and runs each check against generated data with and without defects.
 
-## HubSpot developer test account (milestone 4)
+## HubSpot developer test account (milestones 4-5)
 
 These commands write to a HubSpot developer test account. `make test` never calls HubSpot: the tests use mocked HTTP transports, and a test fixture makes any real request fail.
 
@@ -163,12 +165,46 @@ Every command first reads `/account-info/2026-09/details` and stops unless `acco
 - Every record is upserted on the unique custom property `northwind_id`, so a second run on the same day creates nothing and sends identical payloads.
 - Dates: open deals' close date and stage-entered date move forward by the number of days between 2026-06-30 and the seed day; every other date keeps its generated value. Create times go in `northwind_created_at`.
 - Custom properties, in the `northwind` group: `northwind_id`, `northwind_created_at` (all three objects), `northwind_employee_band`, `northwind_plan_tier`, `northwind_churned_at` (companies), `northwind_source` (contacts), `northwind_stage_entered_at`, `northwind_closed_at` (deals).
+- References to skipped records are blank in the answer key, as they are in HubSpot: one deal's primary contact is a skipped D01 duplicate, so that deal has no contact.
 - Emails and domains: HubSpot rejects the `.example` top-level domain, so `name.example` is sent as `name.example.com` (also reserved). The seed output folder has the rewritten values.
 - Industry: the generator's labels map to HubSpot's `industry` options by label (`INDUSTRY_LABELS` in `monitor/hubspot/seed.py`). A label with no matching option stops the seed before any write.
 
 Post-seed checks (exit 1 if any fails): the number of records with `northwind_id` per object matches the plan, no company exists without `northwind_id`, and the 10 D16 contacts still have no lifecycle stage. Search results lag writes by a few seconds, so the counts are retried for up to 30 seconds.
 
 Output in `data/output/hubspot/` (gitignored): `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv` and `metadata.json` (the seeded data in snapshot form, as of the seed day), `defects_manifest.json` (the 12 plantable defects), and `seed.json` (seed day, date shift, owner ID, counts; no token). `uv run python -m monitor run --path data/output/hubspot --fresh --db data/output/hubspot.duckdb` scores it offline.
+
+### Reading the test account (milestone 5)
+
+```
+make snapshot-hubspot
+uv run python -m monitor run --source hubspot --as-of 2026-11-12 --manifest data/output/hubspot/defects_manifest.json --save-snapshot data/output/hubspot-live --fresh
+uv run python scripts/compare_snapshots.py data/output/hubspot data/output/hubspot-live
+```
+
+`run --source hubspot` only reads. It sends GETs plus association batch reads, about 30 requests for the seeded data. In order:
+
+1. The guard (developer test account, matching `HUBSPOT_PORTAL_ID`).
+2. The deal pipelines. The `default` pipeline must contain every stage in `checks/params.yaml`; if one is missing, the run exits 2 before any check runs.
+3. Owners (active and archived) and the `industry` options.
+4. Every unarchived company, contact and deal, 100 per page.
+5. Associations: contact to company, deal to company and deal to contact, 1,000 records per batch read.
+
+How records become snapshot rows:
+- **Record IDs:** `northwind_id`, or `HS-<HubSpot ID>` for records added by hand.
+- **Seeded records** take the generator values from the `northwind_*` properties. Records added by hand take HubSpot's `createdate` and `hs_analytics_source`.
+- **Industry:** values map back to the generator labels.
+- **Dates and timestamps:** datetimes are cut to whole seconds in UTC; `closedate` and `churned_at` become dates.
+- **Company and contact links:** a contact's or deal's company is the association labelled Primary, or the lowest record ID if none is. A deal's contact is the lowest record ID.
+- **Owners:** only IDs and an active flag are kept. Names and emails are never read.
+
+Options (see also "Running the monitor on one snapshot"):
+- `--as-of` sets the date the checks measure against (default today, UTC). Use the seed day to score the answer key on a later day.
+- `--manifest` scores the run against an answer key. A missing file prints "not scored (no answer key at ...)". A key for a different day prints a note, because records that aged since the seed show up as false positives.
+- `--save-snapshot DIR` also writes what was read as a CSV snapshot. `run --path DIR` can re-run it offline, and `scripts/compare_snapshots.py` compares it with the answer key.
+
+`scripts/compare_snapshots.py EXPECTED ACTUAL` lists, per table, the records missing or extra and, per column, how many records differ, with up to 5 examples. `owner_id` is compared only as blank or set, and the owners table isn't compared, because the answer key keeps `OWN-xx` and the portal has one owner. It exits 0 if nothing differs, 1 if something does, and 2 if a folder can't be read.
+
+The database and reports are kept apart from the demo (`data/output/hubspot-live.duckdb`, `reports/hubspot/`), so a live run never changes the demo's change detection or `reports/latest.html`.
 
 ## CI
 
@@ -200,6 +236,9 @@ Milestone 7 replaces the offline demo with the scheduled HubSpot run.
 | `... 401` or `... 403` from HubSpot | the key is revoked or missing a scope; compare its scopes with the setup list |
 | `the portal has 2 active owners; set HUBSPOT_OWNER_ID` | put the owner ID to use in `.env` (`/crm/owners` lists them) |
 | `HubSpot's industry options have no match for: ...` | update `INDUSTRY_LABELS` in `monitor/hubspot/seed.py` using `data/output/hubspot/industry_options.json` from the probe, and copy the matching options into `tests/fixtures/hubspot_industry_options.json` |
+| `cannot read snapshot: deal pipeline 'default' has no stage ...` | the portal's default deal pipeline was edited; restore the stage IDs or update `deal_stages` in `checks/params.yaml` |
+| `not scored (no answer key at ...)` | run `make seed-hubspot` first, or pass `--manifest` with the path of an existing `defects_manifest.json` |
+| `compare_snapshots.py` reports differences | look at the first example in each line; a value HubSpot changed after seeding (automation, a manual edit) shows up here before it shows up as a finding |
 | `400 VALIDATION_ERROR ... INVALID_EMAIL` | HubSpot rejects the address; emails sent to HubSpot must end in `.example.com`, not `.example` (see `hubspot_email` in `monitor/hubspot/seed.py`) |
 | post-seed check: companies without `northwind_id` | switch off "Create and associate companies with contacts", run `hubspot reset --yes`, archive the extra companies in HubSpot, and seed again |
 | post-seed check: D16 contact has a lifecycle stage | switch off the lifecycle stage automation, run `hubspot reset --yes`, then seed again (a second seed leaves blank fields out, so it can't clear a stage HubSpot filled in) |

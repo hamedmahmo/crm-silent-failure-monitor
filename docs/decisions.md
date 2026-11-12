@@ -2,6 +2,48 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Map HubSpot records to snapshot rows by `northwind_id`, with seeded and hand-made records read differently
+
+**Decision:** `run --source hubspot` reads every unarchived company, contact and deal.
+- A record's ID is its `northwind_id`, or `HS-<HubSpot ID>` when it has none.
+- Seeded records take the generator values stored in `northwind_*` properties (create time, source, employee band, plan tier, churn date, stage-entered and closed times). Records without `northwind_id` take HubSpot's own `createdate` and `hs_analytics_source`; there is no fallback from one to the other.
+- Owners keep only their ID and whether they are active; names and emails are not read.
+- A contact's or deal's company is the association labelled Primary, or the lowest record ID if none is. A deal's contact is the lowest record ID.
+
+**Context:**
+- Scoring needs the same record IDs as the answer key, and records added by hand still need to be checked.
+- HubSpot fills Original source on contacts created through the API. A fallback to `hs_analytics_source` would therefore give the 10 D22 contacts a source and hide the defect.
+- The test account's only owner is the account holder, a real person, and no check uses owner names.
+- HubSpot has a Primary label for a contact's or deal's company but not for a deal's contact. The undocumented response for a record with no associations is handled in both forms the docs leave open.
+
+**Alternatives:**
+- Reading only tagged records, which would miss problems in records added by hand.
+- Taking the first association HubSpot returns, which isn't stable between runs.
+
+**Consequences:**
+- Deals added by hand have no stage-entered date, so D21 can't flag them.
+- Records from HubSpot automation (for example auto-created companies) show up as `HS-` records and are checked like any other.
+
+## 2026-11-12: Keep live runs in their own database and report folder
+
+**Decision:** `run --source hubspot` defaults to `data/output/hubspot-live.duckdb` and `reports/hubspot/`. The run's `source_ref` is "HubSpot developer test account", with no portal ID.
+
+**Context:** Change detection compares a run with the one before it in the same database. Mixing live runs with the demo's day 1 and day 2 would compare unrelated data. M7 publishes the report on public GitHub Pages, so the portal ID stays out of the database and the reports.
+
+**Alternatives:** One database with a source filter. That adds a column and a query change for no gain.
+
+**Consequences:** `reports/latest.html` stays the demo report until M7 decides what to publish.
+
+## 2026-11-12: Blank references to skipped records in the seed's answer key
+
+**Decision:** `build_seed` blanks any `company_id` or `primary_contact_id` that points at a record the seed skips. In the generated data that is one deal, whose primary contact is a D01 duplicate.
+
+**Context:** The M5 round-trip test showed that the answer key still pointed at the skipped contact while HubSpot, correctly, had no association. The answer key should describe what HubSpot holds.
+
+**Alternatives:** Leaving it, and having the comparison script report one known difference on every run.
+
+**Consequences:** No check result changes (the 75-of-75 test still passes). The answer key written by the 2026-11-12 seed predates this fix. Running the seed again with `--day 2026-11-12` sends identical payloads and rewrites the answer key.
+
 ## 2026-11-12: Seed HubSpot with `.example.com` emails and domains
 
 **Decision:** When seeding HubSpot, every company domain and contact email that ends in `.example` gets `.com` appended: `quartzstone.example` becomes `quartzstone.example.com`. The rewrite happens in `build_seed` (`hubspot_domain` and `hubspot_email` in `monitor/hubspot/seed.py`), so the seed output folder holds the same values as the portal. The generator, the CSV files and `make demo` keep `.example`. The probe contacts use `probe-lifecycle.example.com` and `probe-autocreate.example.com`.

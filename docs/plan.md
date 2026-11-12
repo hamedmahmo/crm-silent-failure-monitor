@@ -476,6 +476,13 @@ The first live read is also where the undocumented "no associations" response sh
   - the separate database and reports folder for live runs.
 - README: status line, the live result from step 1, and the limitation on `stage_entered_at` for deals added by hand.
 
+### Changes made while building M5
+
+- The comparison logic is in `monitor/compare.py`, so it can be tested; `scripts/compare_snapshots.py` only calls it.
+- The owners table is not compared at all, rather than compared by count of active owners. The answer key has the generator's 12 owners, while the portal has one, so no count would match.
+- The round-trip test found that the seed's answer key still pointed one deal at a skipped D01 contact. `build_seed` now blanks references to skipped records (decision entry 2026-11-12). The answer key on disk predates the fix, so before live step 2, running the seed again with `--day 2026-11-12` rewrites it. That sends identical payloads, so HubSpot data doesn't change. Otherwise step 2 shows exactly that one known difference.
+- `churned_at` is a date in the generator, so it is read back as a date, like `closedate`.
+
 ### Done for M5
 
 - Everything in the CLAUDE.md definition of done holds, and `make demo` results are unchanged.
