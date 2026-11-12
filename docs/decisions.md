@@ -2,6 +2,36 @@
 
 A short log of choices someone might later ask "why?" about. Newest first. Copy the template at the bottom for new entries.
 
+## 2026-11-12: Use HubSpot's date-based API version 2026-09
+
+**Decision:** Every HubSpot request uses the `2026-09` paths (`/crm/objects/2026-09/...`, `/crm/properties/2026-09/...`, `/crm/associations/2026-09/...`, `/account-info/2026-09/details`, `/crm/owners/2026-09`). The version is one constant, `API_VERSION` in `monitor/hubspot/client.py`.
+
+**Context:** Since 2026-03-30 HubSpot versions its API by date and calls `v3` and `v4` "legacy", with no deprecation date announced yet. Each dated version is supported for 18 months. From `2026-09`, validation rules an admin sets up in the portal also apply to API writes; the developer test account has none.
+
+**Alternatives:** The `v3`/`v4` paths that most examples still use.
+
+**Consequences:** The code follows the current docs and has a known support window. Moving to a newer version means changing one constant and re-running the probes.
+
+## 2026-11-12: Store the contact source in a custom property and map industries by label
+
+**Decision:** The generator's `source` goes in a custom enumeration property, `northwind_source`, instead of HubSpot's `hs_analytics_source` (Original source). The 12 generator industries map to HubSpot's `industry` options through a table of HubSpot labels (`INDUSTRY_LABELS`); the values sent are looked up from the portal's live option list. All custom properties use a `northwind_` prefix, so the D21 property planned as `stage_entered_at` is `northwind_stage_entered_at`.
+
+**Context:** HubSpot sets Original source from its own analytics, and its docs disagree on whether the API can write it. `industry` is an enumeration of about 150 HubSpot values, and none of them is spelled like the generator's labels (for example "Software" against "Computer Software").
+
+**Alternatives:** Write `hs_analytics_source` and see if it sticks; a custom `northwind_industry` text property; hard-code HubSpot's internal industry values.
+
+**Consequences:** D22 is checked on a property the seed controls, and probe P4 records whether the standard property is read-only. Companies keep HubSpot's standard industry field, which is what a RevOps team would report on. If HubSpot renames an industry option, the seed stops before writing anything and names the label to fix. Milestone 5 needs the reverse map to turn HubSpot values back into generator labels.
+
+## 2026-11-12: Switch off portal automation before seeding, and check after
+
+**Decision:** Before seeding, "Create and associate companies with contacts" and the lifecycle stage automation (default stage, first deal created, deal won, lead associated) are switched off by hand in the test account. Probes P2 and P3 test them, and the seed's post-seed checks fail if any company lacks `northwind_id` or a D16 contact has gained a lifecycle stage.
+
+**Context:** These portal settings change records after they are created: auto-created companies would show up as D04 findings that aren't in the manifest, and automatic lifecycle stages would fill the blanks that D16 plants. HubSpot doesn't expose them through the API, so the code can't switch them off or read them directly.
+
+**Alternatives:** Leave the settings on and filter their effects out when scoring; skip D16.
+
+**Consequences:** Seeding depends on a manual setup step, documented in the runbook. A portal with the settings on is caught twice: once by the probes before seeding and once by the post-seed checks.
+
 ## 2026-11-12: When seeding HubSpot, shift only the dates checked against the as-of date
 
 **Decision:** This corrects the 2026-11-11 entry "Shift dates when seeding HubSpot and keep the original create date". Only open deals' `close_date` and `stage_entered_at` move forward by N days (N = seed day − 2026-06-30). Create times, closed deals' `close_date` and `closed_at` keep their generated values. Create times still go in `northwind_created_at`, and the live run's as-of date is the run date.

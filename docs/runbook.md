@@ -14,7 +14,7 @@ How to set up, run and troubleshoot this project. Keep it current: `/runbook` in
 make setup
 ```
 
-This runs `uv sync` (creates `.venv` with Python 3.12, installs the runtime dependencies duckdb and pyyaml, and the dev tools pytest, ruff and pre-commit) and `uv run pre-commit install` (adds the git hook).
+This runs `uv sync` (creates `.venv` with Python 3.12, installs the runtime dependencies duckdb, pyyaml, jinja2, httpx and python-dotenv, and the dev tools pytest, ruff and pre-commit) and `uv run pre-commit install` (adds the git hook).
 
 Check the interpreter: `uv run python --version` should print `Python 3.12.x`.
 
@@ -30,6 +30,9 @@ The first commit, or the first `make hooks`, builds the gitleaks hook from sourc
 | `make format` | apply ruff formatting and safe fixes |
 | `make demo` | offline demo: generate day 1, simulate day 2, run the monitor on both, open `reports/latest.html` |
 | `make hooks` | run every pre-commit hook on all files |
+| `make hubspot-check` | read-only check of the HubSpot developer test account (see below) |
+| `make seed-hubspot` | load Northwind day 1 into the test account |
+| `make reset-hubspot` | dry run of removing the seeded records |
 
 ## Offline demo
 
@@ -121,6 +124,51 @@ The SQL can use the views `owners`, `companies`, `contacts`, `deals` (the curren
 
 Then run `make test`. `tests/test_checks.py` loads every entry, fails on invalid fields, and runs each check against generated data with and without defects.
 
+## HubSpot developer test account (milestone 4)
+
+These commands write to a HubSpot developer test account. `make test` never calls HubSpot: the tests use mocked HTTP transports, and a test fixture makes any real request fail.
+
+### Setup
+
+1. In the developer test account, create a service key (Development > Keys > Service keys) with these scopes: `crm.objects.companies.read`, `crm.objects.companies.write`, `crm.objects.contacts.read`, `crm.objects.contacts.write`, `crm.objects.deals.read`, `crm.objects.deals.write`, `crm.objects.owners.read`, `crm.schemas.companies.read`, `crm.schemas.companies.write`, `crm.schemas.contacts.read`, `crm.schemas.contacts.write`, `crm.schemas.deals.read`, `crm.schemas.deals.write`.
+2. Put these in `.env` (never commit it):
+
+   | Variable | Required | Value |
+   |---|---|---|
+   | `HUBSPOT_ACCESS_TOKEN` | yes | the service key |
+   | `HUBSPOT_PORTAL_ID` | yes | the test account's portal ID; every command refuses to run against any other portal |
+   | `HUBSPOT_OWNER_ID` | only if the portal has more than one active user | the owner every Northwind owner maps to |
+
+3. In the portal settings, switch these off. HubSpot doesn't expose them through the API, and each one changes seeded records:
+   - Data Management > Objects > Companies > Automation > "Create and associate companies with contacts" (would add companies with no `northwind_id`).
+   - Data Management > Objects > Contacts > Lifecycle Stage: the "Default stage" rule, and the Automate toggles for first deal created, deal won and lead associated (would fill the blank lifecycle stages D16 plants).
+
+### Commands
+
+Every command first reads `/account-info/2026-09/details` and stops unless `accountType` is `DEVELOPER_TEST` and the portal ID equals `HUBSPOT_PORTAL_ID`. A missing variable exits 2 before any request; a HubSpot error exits 1.
+
+| Command | Writes | What it does |
+|---|---|---|
+| `make hubspot-check` | no | confirms the portal, counts active owners, and lists which `northwind_*` properties exist |
+| `uv run python -m monitor hubspot probe` | probe records, archived again | runs probes P1-P5, writes `docs/hubspot-verification.md` and `data/output/hubspot/industry_options.json`; exits 1 if a probe contradicts the plan |
+| `make seed-hubspot` | yes | creates missing properties, upserts Northwind day 1, creates associations, runs post-seed checks, writes the answer key |
+| `make reset-hubspot` | no | dry run: counts records tagged `northwind_id` |
+| `uv run python -m monitor hubspot reset --yes` | yes | archives every record tagged `northwind_id` (seeded and probe records); custom properties are kept |
+
+`hubspot seed` options: `--seed` (default 42), `--day YYYY-MM-DD` (default today in UTC), `--out` (default `data/output/hubspot`).
+
+### What the seed loads
+
+- Northwind day 1 with defects, minus the records of the in-scope defects HubSpot rejects (D01, D02, D03, D09, D10): 203 companies, 1,031 contacts, 570 deals, with 75 planted records in 12 defects.
+- Every record is upserted on the unique custom property `northwind_id`, so a second run on the same day creates nothing and sends identical payloads.
+- Dates: open deals' close date and stage-entered date move forward by the number of days between 2026-06-30 and the seed day; every other date keeps its generated value. Create times go in `northwind_created_at`.
+- Custom properties, in the `northwind` group: `northwind_id`, `northwind_created_at` (all three objects), `northwind_employee_band`, `northwind_plan_tier`, `northwind_churned_at` (companies), `northwind_source` (contacts), `northwind_stage_entered_at`, `northwind_closed_at` (deals).
+- Industry: the generator's labels map to HubSpot's `industry` options by label (`INDUSTRY_LABELS` in `monitor/hubspot/seed.py`). A label with no matching option stops the seed before any write.
+
+Post-seed checks (exit 1 if any fails): the number of records with `northwind_id` per object matches the plan, no company exists without `northwind_id`, and the 10 D16 contacts still have no lifecycle stage. Search results lag writes by a few seconds, so the counts are retried for up to 30 seconds.
+
+Output in `data/output/hubspot/` (gitignored): `owners.csv`, `companies.csv`, `contacts.csv`, `deals.csv` and `metadata.json` (the seeded data in snapshot form, as of the seed day), `defects_manifest.json` (the 12 plantable defects), and `seed.json` (seed day, date shift, owner ID, counts; no token). `uv run python -m monitor run --path data/output/hubspot --fresh --db data/output/hubspot.duckdb` scores it offline.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests, on Ubuntu: `uv sync --locked`, `make lint`, `make test`, `make demo`, `make hooks`. `make demo` runs the whole offline pipeline there; GitHub sets `CI=true`, so it doesn't try to open a browser.
@@ -145,6 +193,14 @@ Milestone 7 replaces the offline demo with the scheduled HubSpot run.
 | gitleaks blocks a commit | remove the secret from the file, keep it in `.env` instead, and re-stage. If it is a false positive, add the fingerprint to a `.gitleaksignore` file |
 | `end-of-file-fixer` or `trailing-whitespace` changed files and the commit stopped | the hook fixed them; `git add` the files and commit again |
 | `uv sync --locked` fails in CI | run `uv lock` locally and commit `uv.lock` |
+| `HUBSPOT_ACCESS_TOKEN is not set` | add it to `.env` in the repository root |
+| `... not a developer test account; refusing to write` | the token belongs to a standard or sandbox portal; create the key in the developer test account |
+| `... different portal than HUBSPOT_PORTAL_ID` | `HUBSPOT_PORTAL_ID` doesn't match the token's portal; fix whichever is wrong |
+| `... 401` or `... 403` from HubSpot | the key is revoked or missing a scope; compare its scopes with the setup list |
+| `the portal has 2 active owners; set HUBSPOT_OWNER_ID` | put the owner ID to use in `.env` (`/crm/owners` lists them) |
+| `HubSpot's industry options have no match for: ...` | update `INDUSTRY_LABELS` in `monitor/hubspot/seed.py` using `data/output/hubspot/industry_options.json` from the probe |
+| post-seed check: companies without `northwind_id` | switch off "Create and associate companies with contacts", run `hubspot reset --yes`, archive the extra companies in HubSpot, and seed again |
+| post-seed check: D16 contact has a lifecycle stage | switch off the lifecycle stage automation, run `hubspot reset --yes`, then seed again (a second seed leaves blank fields out, so it can't clear a stage HubSpot filled in) |
 | The Pages URL shows the README instead of the report | set Pages Source to "GitHub Actions" in the repository settings, then re-run "Publish report" |
 | `monitor run` exits with 1 | a check errored; the report lists it under "Checks that failed to run" with the DuckDB message |
 | Report compares with an unexpected earlier run | runs accumulate in the database; pass `--fresh` or a different `--db` |

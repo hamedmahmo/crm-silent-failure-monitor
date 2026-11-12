@@ -4,7 +4,7 @@ A job that snapshots CRM data, runs SQL checks for records that break pipeline a
 
 **Latest report:** https://hamedmahmo.github.io/crm-silent-failure-monitor/ (the offline demo, rebuilt on every push to `main`).
 
-Status: milestones 1-3 are built and run offline on synthetic data. The HubSpot source, the digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
+Status: milestones 1-3 are built and run offline on synthetic data. Milestone 4, which seeds a HubSpot developer test account, is built and tested against a mocked HubSpot API but hasn't been run against the portal yet. Reading HubSpot back, the digest and the scheduled job are planned in [docs/plan.md](docs/plan.md) and not built yet.
 
 ## Demo
 
@@ -130,7 +130,7 @@ Design decisions and their reasons are logged in [docs/decisions.md](docs/decisi
 
 ## Limitations
 
-- Offline only so far. The HubSpot snapshot, the digest and the scheduled run are planned (milestones 4-7) but not built.
+- Offline only so far. The HubSpot seed (milestone 4) has only run against a mocked API; the HubSpot snapshot, the digest and the scheduled run (milestones 5-7) are not built.
 - The checks are exact rules for the planted defects. Duplicate detection only catches emails that differ by letter case or surrounding spaces, and companies with the same domain; it doesn't do fuzzy name matching.
 - The stale-stage check (D21) needs a `stage_entered_at` value. HubSpot doesn't have one for deals, so the live version needs a custom property.
 - The database keeps every snapshot and has no pruning yet.
